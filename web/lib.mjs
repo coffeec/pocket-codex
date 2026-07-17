@@ -28,6 +28,11 @@ export class ConversationStore {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
       if (parsed?.version === 1 && Array.isArray(parsed.conversations)) {
         this.data = parsed;
+        for (const conversation of this.data.conversations) {
+          if (!['low', 'medium', 'high', 'xhigh'].includes(conversation.reasoningEffort)) {
+            conversation.reasoningEffort = 'high';
+          }
+        }
       }
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
@@ -55,11 +60,15 @@ export class ConversationStore {
     return this.data.conversations.find((item) => item.id === id) || null;
   }
 
-  create() {
+  create(options = {}) {
     const timestamp = nowIso();
     const conversation = {
       id: makeId('chat'),
       title: '新会话',
+      mode: ['gpt', 'agent', 'server'].includes(options.mode) ? options.mode : 'gpt',
+      model: options.model || null,
+      reasoningEffort: ['low', 'medium', 'high', 'xhigh'].includes(options.reasoningEffort) ? options.reasoningEffort : 'high',
+      projectId: options.projectId || null,
       threadId: null,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -94,6 +103,21 @@ export class ConversationStore {
     conversation.threadId = threadId;
     conversation.updatedAt = nowIso();
     this.save();
+  }
+
+  updateSettings(id, settings = {}) {
+    const conversation = this.get(id);
+    if (!conversation) return null;
+    if (settings.mode && ['gpt', 'agent', 'server'].includes(settings.mode)) conversation.mode = settings.mode;
+    if (Object.hasOwn(settings, 'model')) conversation.model = settings.model || null;
+    if (Object.hasOwn(settings, 'reasoningEffort') && ['low', 'medium', 'high', 'xhigh'].includes(settings.reasoningEffort)) {
+      conversation.reasoningEffort = settings.reasoningEffort;
+    }
+    if (Object.hasOwn(settings, 'projectId')) conversation.projectId = settings.projectId || null;
+    if (settings.resetThread) conversation.threadId = null;
+    conversation.updatedAt = nowIso();
+    this.save();
+    return conversation;
   }
 
   remove(id) {

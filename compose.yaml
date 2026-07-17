@@ -16,6 +16,7 @@ services:
       - web_password
     volumes:
       - ./data/codex:/home/node/.codex
+      - ./data/skills:/home/node/.codex/skills:ro
       - ./data/cc-switch:/home/node/.cc-switch
       - ./data/ssh:/home/node/.ssh
       - ./workspace:/workspace
@@ -44,13 +45,20 @@ services:
       WEB_USER: admin
       WEB_PORT: "7682"
       CODEX_WEB_DATA: /home/node/.codex-web
+      POCKET_SSD_ROOT: /projects/ssd
+      POCKET_DISK_ROOT: /projects/disk
+      CLOUDCLI_HOST: cloudcli-agent
+      CLOUDCLI_PORT: "3001"
     secrets:
       - web_password
     volumes:
       - ./data/codex:/home/node/.codex
+      - ./data/skills:/home/node/.codex/skills:ro
       - ./data/codex-web:/home/node/.codex-web
       - ./data/ssh:/home/node/.ssh
       - ./workspace:/workspace:ro
+      - ${SSD_WORKSPACES:-/home/coffee/pocket-workspaces}:/projects/ssd
+      - ${DISK_WORKSPACES:-/mnt/d/pocket-workspaces}:/projects/disk
     ports:
       - "127.0.0.1:7682:7682"
     extra_hosts:
@@ -72,6 +80,46 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  cloudcli-agent:
+    image: pocket-cloudcli:local
+    build:
+      context: ./cloudcli
+      args:
+        CLOUDCLI_COMMIT: 27eaf0146a46aa8a55178f3d394360ff7465420f
+    container_name: cloudcli-agent
+    restart: unless-stopped
+    environment:
+      WORKSPACES_ROOT: /workspaces
+      POCKETCODEX_STORAGE_ROOTS: /workspaces/ssd,/workspaces/disk
+      NPM_CONFIG_CACHE: /tmp/npm-cache
+      XDG_CACHE_HOME: /tmp/cache
+    volumes:
+      - ./data/codex:/home/node/.codex
+      - ./data/codex/auth.json:/home/node/.codex/auth.json:ro
+      - ./data/codex/config.toml:/home/node/.codex/config.toml:ro
+      - ./data/skills:/home/node/.codex/skills:ro
+      - ./data/skills:/home/node/.agents/skills:ro
+      - ./data/cloudcli:/home/node/.cloudcli
+      - ${SSD_WORKSPACES:-/home/coffee/pocket-workspaces}:/workspaces/ssd
+      - ${DISK_WORKSPACES:-/mnt/d/pocket-workspaces}:/workspaces/disk
+    networks:
+      - sub2api_net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2.0
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 secrets:
   web_password:

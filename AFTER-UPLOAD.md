@@ -1,315 +1,173 @@
-# 上传到 Ubuntu 后的部署流程
+# Ubuntu 部署与回滚
 
-这份流程按当前机器整理：
+本文适用于已有 PocketCodex 的原地升级。目标是保留认证、会话、CC Switch 配置和 Skills，先完成候选验证，再替换运行服务。
 
-- Ubuntu 示例：`ubuntu@192.168.x.x`（替换成你的实际用户名和地址）
-- Sub2API 容器：`sub2api`
-- Palworld 服务：`palworld`
-- SakuraFrp 服务：`sakurafrp-palworld`
-- 手机外网访问：Tailscale Serve
-
-完成后保留两个互不依赖的入口：
+## 服务拓扑
 
 ```text
-手机 -> Tailscale HTTPS -> codex-web :7682 -> Codex exec -> Sub2API
-                                     |
-                                     +-> 只读 hostctl
+Tailscale HTTPS -> 127.0.0.1:7682 -> codex-web
+  /pocket-api/* -> Pocket GPT / 服务器 API
+  /agent/*      -> cloudcli-agent UI
+  /api/*        -> cloudcli-agent API
+  /ws, /shell   -> cloudcli-agent WebSocket
 
-备用入口 -> codex-agent :7681 -> ttyd -> Codex TUI
+127.0.0.1:7681 -> codex-agent ttyd 备用入口
 ```
 
-`codex-web` 是竖屏聊天页面；`codex-agent` 是原来的网页终端。两者共享 Codex
-和只读 SSH 配置；CC Switch 仍由终端容器管理，但不会挂载 Docker Socket、
-Ubuntu 根目录或帕鲁存档。
+`cloudcli-agent` 不发布宿主机端口。它与 Pocket 共用 CC Switch 管理的 Codex 配置，但不挂载 Docker Socket、宿主机根目录、整个 `/home`、SSH 目录或 Palworld 数据。
 
-## A. 已经装过旧版时
-
-先把新文件夹上传到 `$HOME/pocket-codex`，确认其中已经包含：
-
-```text
-web/app.mjs
-web/server.mjs
-web/public/index.html
-```
-
-进入目录并准备新页面的数据目录：
+## 1. 升级前检查与备份
 
 ```bash
 cd "$HOME/pocket-codex"
-mkdir -p data/codex-web
-chmod 700 data/codex-web
-```
-
-保留原来的 `data/`、`secrets/` 和 `.env`。不要用上传包中的空目录覆盖它们，
-因为里面有 CC Switch Provider、Codex 配置、SSH 密钥和网页密码。
-
-检查并重新构建：
-
-```bash
-docker compose config >/dev/null && echo 'Compose 配置正常'
-docker compose build codex-agent
-docker compose up -d
+date
+git status --short 2>/dev/null || true
 docker compose ps
+docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'
+tailscale serve status
+df -h / /home/coffee /mnt/d
 ```
 
-查看两个入口的日志：
+使用仅当前用户可读的时间戳目录备份配置和持久化数据。不要在命令输出中打印密码、Token 或 Key：
 
 ```bash
-docker compose logs --tail=100 codex-agent
-docker compose logs --tail=100 codex-web
+stamp=$(date +%Y%m%d-%H%M%S)
+backup="$HOME/pocket-codex-backups/$stamp"
+mkdir -p "$backup"
+chmod 700 "$HOME/pocket-codex-backups" "$backup"
+cp -a compose.yaml .env "$backup/" 2>/dev/null || true
+cp -a data secrets "$backup/"
+printf '%s\n' "$backup"
 ```
 
-若 `codex-web` 显示 `healthy`，直接跳到“本地验收新页面”。
-
-## B. 第一次安装时
-
-### 1. 解压与依赖
+确认备份包含非空的 `data/codex`、`data/codex-web` 和 `secrets`，但不要查看文件内容：
 
 ```bash
-cd "$HOME"
-sudo apt update
-sudo apt install -y unzip lm-sensors curl jq openssl openssh-server
-unzip pocket-codex.zip
-cd pocket-codex
+du -sh "$backup"/*
+find "$backup/data" -maxdepth 2 -type f -printf '%P\n' | sort
 ```
 
-确认基础服务：
+## 2. 准备持久化目录
 
 ```bash
-docker compose version
-docker ps --filter name=sub2api
-systemctl is-active palworld sakurafrp-palworld
+mkdir -p data/codex data/codex-web data/cloudcli data/cc-switch data/ssh data/skills \
+  /home/coffee/pocket-workspaces /mnt/d/pocket-workspaces
+cp -an skills/. data/skills/
+chmod 700 data/codex data/codex-web data/cloudcli data/cc-switch data/ssh data/skills \
+  /home/coffee/pocket-workspaces /mnt/d/pocket-workspaces
 ```
 
-### 2. 写入 Sub2API Docker 网络
+`cp -an` 只补入缺失的 Skill，不覆盖宿主机已有修改。若目录以前由 Docker 以 root 创建，先只修正明确的数据目录所有者，不递归触碰项目内容或其他宿主目录。
 
-```bash
-SUB2API_NETWORK=$(docker inspect sub2api \
-  --format '{{range $name,$config := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' \
-  | head -n 1)
+## 3. 检查 CC Switch 配置
 
-printf 'SUB2API_NETWORK=%s\n' "$SUB2API_NETWORK" > .env
-cat .env
-```
-
-等号后面必须有真实网络名，例如：
-
-```text
-SUB2API_NETWORK=deploy_sub2api-network
-```
-
-### 3. 创建持久化目录和网页密码
-
-```bash
-mkdir -p data/codex data/codex-web data/cc-switch data/ssh secrets workspace
-chmod 700 data/codex data/codex-web data/cc-switch data/ssh secrets
-chmod +x entrypoint.sh workspace/hostctl host/*.sh host/pal-watch host/codex-host-helper
-
-openssl rand -base64 24 | tr -d '\n' > secrets/web_password.txt
-chmod 600 secrets/web_password.txt
-```
-
-网页用户名是 `admin`。查看一次随机密码：
-
-```bash
-cat secrets/web_password.txt
-```
-
-### 4. 安装宿主机只读查询接口
-
-```bash
-ssh-keygen -t ed25519 -N '' -C codex-agent-hostctl \
-  -f data/ssh/id_ed25519
-chmod 600 data/ssh/id_ed25519
-sudo ./host/install-host-helper.sh data/ssh/id_ed25519.pub
-```
-
-该密钥只能读取系统状态、帕鲁和 FRP 日志，不能获得普通 Shell。
-
-### 5. 构建镜像
-
-```bash
-docker compose config >/dev/null && echo 'Compose 配置正常'
-docker compose build codex-agent
-```
-
-两个服务使用同一个本地镜像，因此不会重复保存两份 Node、Codex 和 CC Switch。
-
-### 6. 配置 CC Switch
-
-```bash
-docker compose run --rm --entrypoint cc-switch codex-agent --app codex
-```
-
-在 `Providers` 中新增 `Custom` Provider：
-
-```text
-Provider Name：sub2api-local
-Website URL：留空
-API Key：Sub2API 创建的用户 API Key
-Base URL：http://sub2api:8080/v1
-Model：Sub2API 后台实际可用的 Codex 模型名
-```
-
-列出并切换 Provider：
-
-```bash
-docker compose run --rm --entrypoint cc-switch codex-agent \
-  --app codex provider list
-
-docker compose run --rm --entrypoint cc-switch codex-agent \
-  --app codex provider switch <ID>
-```
-
-检查最终配置，不显示 API Key：
+CloudCLI 只接受 `sub2api_local` 和 Docker 内网 Sub2API 地址：
 
 ```bash
 grep -E '^(model|model_provider)|base_url|wire_api' data/codex/config.toml
 ```
 
-应包含：
+结果必须包含：
 
-```text
+```toml
+model_provider = "sub2api_local"
 base_url = "http://sub2api:8080/v1"
-wire_api = "responses"
 ```
 
-CC Switch 只写配置，`CC_SWITCH_PROXY` 保持为 `0`。
+不要输出 `data/codex/auth.json`。若需要切换 Provider，使用现有 CC Switch 流程完成后再继续。
 
-### 7. 启动
+## 4. 候选配置与镜像
+
+先验证 Compose 和构建镜像，不启动或替换生产容器：
+
+```bash
+docker compose config --quiet
+docker compose build codex-agent cloudcli-agent
+docker image inspect pocket-codex:local pocket-cloudcli:local \
+  --format '{{.RepoTags}} {{.Size}}'
+```
+
+构建 CloudCLI 时会拉取固定 commit `27eaf0146a46aa8a55178f3d394360ff7465420f`，依次应用 `cloudcli/patches/`，然后执行生产构建。任何补丁检查或构建失败都应在此停止，不影响当前运行容器。
+
+## 5. 启动与健康检查
 
 ```bash
 docker compose up -d
 docker compose ps
-docker compose logs --tail=100 codex-web
+docker compose logs --tail=100 codex-web cloudcli-agent
+curl -fsS http://127.0.0.1:7682/health
 ```
 
-测试中转和只读接口：
+`codex-web` 应为 healthy。`cloudcli-agent` 故障不会阻止 GPT 和服务器模式启动；此时 `/agent/` 返回 502，便于单独排查。
+
+运行图片能力探测：
 
 ```bash
-docker compose exec codex-web codex exec \
-  --skip-git-repo-check -C /workspace '只回复：Sub2API 连接成功'
-
-docker compose exec codex-web /workspace/hostctl status
+docker compose exec -T codex-web node /app/web/probe-image.mjs
 ```
 
-## 本地验收新页面
+只有探测结果为 `supported` 时，GPT 才允许图片请求。其他结果会在界面明确拒绝，不会伪装支持。
 
-先不要改 Tailscale。Windows PowerShell 建立临时隧道：
+## 6. 本地验收
+
+在 Windows 建立临时 SSH 隧道，不修改 Tailscale：
 
 ```powershell
-ssh -L 17682:127.0.0.1:7682 ubuntu@192.168.x.x
+ssh -L 17682:127.0.0.1:7682 coffee@192.168.5.4
 ```
 
-保持窗口开启，浏览器访问：
+浏览器打开 `http://127.0.0.1:17682`，使用原 PocketCodex 登录凭据验收：
 
-```text
-http://127.0.0.1:17682
-```
+1. GPT 默认模型是 `gpt-5.6-sol`，可切换模型并接收真实增量输出。
+2. 刷新后 GPT 和服务器会话仍在，Markdown 与代码复制正常。
+3. 图片粘贴、手机相册/拍照和允许的文件类型受 20MB 单文件限制。
+4. Agent 无第二次登录，模型来自当前 `config.toml`，默认推理强度为 `high`。
+5. Agent 只能创建 SSD 或 D 盘项目，不能打开未登记路径。
+6. 同时启动第二个 Agent 任务会得到 `AGENT_BUSY`。
+7. Server 状态与 Palworld、FRP、Sub2API 状态正常。
 
-输入用户名 `admin` 和 `secrets/web_password.txt` 中的密码，然后依次检查：
-
-1. 顶部能显示温度、内存、系统盘、电池和三个服务状态。
-2. 发送“检查服务器状态”能收到回答。
-3. 刷新页面后历史会话仍然存在。
-4. 左侧会话列表可以新建、切换和删除会话。
-
-这个测试不影响正在使用的 `7681` 网页终端。
-
-## 切换手机入口
-
-本地验收通过后，在 Ubuntu 执行：
+还应验证容器内实际调用路径：
 
 ```bash
-sudo tailscale serve --bg 7682
-tailscale serve status
+docker compose exec -T cloudcli-agent sh -lc \
+  "grep -E '^(model|model_provider)|base_url' /home/node/.codex/config.toml"
+docker compose exec -T codex-web /workspace/hostctl status
 ```
 
-手机保持登录同一个 Tailscale 网络，继续打开原来的 Tailscale HTTPS 地址即可。
-浏览器可能再次询问 Basic Auth，用户名仍是 `admin`。
-
-Android Chrome 可以从菜单选择“添加到主屏幕”或“安装应用”。应用仍然实时连接
-Ubuntu，不会把聊天记录、API 响应或网页密码缓存到手机离线存储中。
-
-需要临时切回旧 ttyd 时：
+## 7. 资源与旁路服务检查
 
 ```bash
-sudo tailscale serve --bg 7681
-tailscale serve status
-```
-
-再次切回聊天页面：
-
-```bash
-sudo tailscale serve --bg 7682
-```
-
-## 开机自启检查
-
-```bash
-sudo systemctl enable --now docker tailscaled
-docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' codex-agent codex-web
-docker compose ps
-```
-
-两个容器都应显示 `unless-stopped`。重启 Ubuntu 后验证：
-
-```bash
-sudo reboot
-```
-
-重新连接后：
-
-```bash
-cd "$HOME/pocket-codex"
-docker compose ps
-tailscale serve status
+docker stats --no-stream codex-agent codex-web cloudcli-agent sub2api sub2api-postgres sub2api-redis
+docker system df
+du -sh data/codex-web data/cloudcli data/codex data/skills
+docker ps --filter name=sub2api --format '{{.Names}} {{.Status}}'
 systemctl is-active palworld sakurafrp-palworld tailscaled
+tailscale serve status
 ```
+
+`cloudcli-agent` 上限为 2 CPU、2GB 内存和 256 PID；`/tmp` 为 512MB tmpfs。没有新增公网端口，Palworld、FRP 和 Sub2API 的容器、端口与状态不应改变。
+
+## 8. 回滚
+
+若验收失败，先保存新容器日志，再恢复备份的 Compose 和原镜像/源码版本。不要删除新生成的会话或覆盖旧数据：
+
+```bash
+docker compose logs --no-color codex-web cloudcli-agent > "$backup/failed-upgrade.log" 2>&1
+cp -a "$backup/compose.yaml" ./compose.yaml
+cp -a "$backup/.env" ./.env 2>/dev/null || true
+```
+
+随后使用升级前记录的源码和镜像重新 `docker compose up -d`。`data/` 与 `secrets/` 默认保持原位；只有确认数据格式回滚不兼容时，才在停服状态下从备份恢复明确的子目录。
 
 ## 日常命令
 
 ```bash
 cd "$HOME/pocket-codex"
-
 docker compose ps
-docker compose logs -f --tail=100 codex-web
-docker compose restart codex-web
-docker stats --no-stream sub2api codex-agent codex-web
-du -sh data/codex-web
+docker compose logs -f --tail=100 codex-web cloudcli-agent
+docker stats --no-stream codex-agent codex-web cloudcli-agent
+du -sh data/codex-web data/cloudcli
+tailscale serve status
 ```
 
-旧终端仍可使用：
-
-```bash
-docker compose exec codex-agent codex resume --last
-```
-
-不要在聊天页面和 ttyd 中同时操作同一个 Codex 会话。
-
-## 资源占用
-
-- `codex-web` 待机通常约 `30-70MB` 内存。
-- 执行 Codex 时通常上升到数百 MB，容器上限为 `2GB`。
-- Web 页面代码不到 `1MB`，会话历史以 JSON 保存，初期通常只有几 MB。
-- 两个容器共用同一个镜像，增加的硬盘占用主要是少量容器层和会话数据。
-- 状态栏每 60 秒读取一次本机数据，不调用模型，不消耗 Sub2API 额度。
-
-实际数据以这两条命令为准：
-
-```bash
-docker stats --no-stream codex-agent codex-web
-docker system df
-```
-
-## 安全边界
-
-- `7681` 和 `7682` 都只绑定 Ubuntu 的 `127.0.0.1`。
-- 手机入口使用 Tailscale HTTPS，不用公网 HTTP，也不需要域名备案。
-- Web 服务有 Basic Auth、同源检查、请求限流和 8000 字符消息上限。
-- 模型回复用安全 DOM 渲染，不会当作 HTML 执行。
-- Codex 可以在非 root Docker 容器内联网查询，但 `/workspace` 以只读方式挂载。
-- 当前网络访问 GitHub 时应优先使用 `api.github.com` 和 `raw.githubusercontent.com`。
-- 容器没有 Docker Socket、Ubuntu 根目录、`sudo` 或任意宿主机 Shell。
-- `hostctl` 只允许预先写死的只读查询。
-- Sub2API 专用 Key 应设置额度，不要发到聊天或截图中。
+Pocket 登录会话最大 12 小时、空闲 1 小时。CloudCLI 使用 platform mode，不签发独立 7 天 JWT。Agent HTTP 和 WebSocket 都必须先通过 Pocket Cookie 会话认证。

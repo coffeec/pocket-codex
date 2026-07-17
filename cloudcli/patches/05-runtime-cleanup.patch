@@ -1,0 +1,91 @@
+diff --git a/index.html b/index.html
+index d2f3c41..8fdd8ca 100644
+--- a/index.html
++++ b/index.html
+@@ -7,14 +7,6 @@
+     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+     <title>PocketCodex Agent</title>
+ 
+-    <!-- Fonts: Encode Sans (UI) + Merriweather (chat) -->
+-    <link rel="preconnect" href="https://fonts.googleapis.com" />
+-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+-    <link
+-      href="https://fonts.googleapis.com/css2?family=Encode+Sans:wght@400;500;600;700&family=Merriweather:ital,wght@0,400;0,700;1,400;1,700&display=swap"
+-      rel="stylesheet"
+-    />
+-
+     <!-- PWA Manifest -->
+     <link rel="manifest" href="/manifest.json" crossorigin="use-credentials"  />
+     
+diff --git a/src/components/auth/view/AuthLoadingScreen.tsx b/src/components/auth/view/AuthLoadingScreen.tsx
+index 86a80ce..36d88be 100644
+--- a/src/components/auth/view/AuthLoadingScreen.tsx
++++ b/src/components/auth/view/AuthLoadingScreen.tsx
+@@ -12,7 +12,7 @@ export default function AuthLoadingScreen() {
+       <div className="relative text-center" role="status" aria-live="polite">
+         <div className="mb-5 flex justify-center">
+           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/80 shadow-lg shadow-primary/25 ring-1 ring-inset ring-white/20">
+-            <img src="/logo.svg" alt="CloudCLI" className="h-9 w-9" />
++            <img src={`${import.meta.env.BASE_URL}logo.svg`} alt="PocketCodex" className="h-9 w-9" />
+           </div>
+         </div>
+
+diff --git a/src/components/auth/view/AuthScreenLayout.tsx b/src/components/auth/view/AuthScreenLayout.tsx
+--- a/src/components/auth/view/AuthScreenLayout.tsx
++++ b/src/components/auth/view/AuthScreenLayout.tsx
+@@ -33,7 +33,7 @@ export default function AuthScreenLayout({
+             <div className="mb-5 flex justify-center">
+               {logo ?? (
+                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/80 shadow-lg shadow-primary/25 ring-1 ring-inset ring-white/20">
+-                  <img src="/logo.svg" alt="CloudCLI" className="h-9 w-9" />
++                  <img src={`${import.meta.env.BASE_URL}logo.svg`} alt="PocketCodex" className="h-9 w-9" />
+                 </div>
+               )}
+             </div>
+diff --git a/src/contexts/PluginsContext.tsx b/src/contexts/PluginsContext.tsx
+index ccf404e..4a559bd 100644
+--- a/src/contexts/PluginsContext.tsx
++++ b/src/contexts/PluginsContext.tsx
+@@ -1,5 +1,6 @@
+ import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+ import type { ReactNode } from 'react';
++import { POCKETCODEX_MODE } from '../constants/config';
+ import { authenticatedFetch } from '../utils/api';
+ 
+ export type Plugin = {
+@@ -43,7 +44,7 @@ export function usePlugins() {
+ 
+ export function PluginsProvider({ children }: { children: ReactNode }) {
+   const [plugins, setPlugins] = useState<Plugin[]>([]);
+-  const [loading, setLoading] = useState(true);
++  const [loading, setLoading] = useState(!POCKETCODEX_MODE);
+   const [pluginsError, setPluginsError] = useState<string | null>(null);
+ 
+   const refreshPlugins = useCallback(async () => {
+@@ -73,7 +74,7 @@ export function PluginsProvider({ children }: { children: ReactNode }) {
+   }, []);
+ 
+   useEffect(() => {
+-    void refreshPlugins();
++    if (!POCKETCODEX_MODE) void refreshPlugins();
+   }, [refreshPlugins]);
+ 
+   const installPlugin = useCallback(async (url: string) => {
+diff --git a/src/hooks/useVersionCheck.ts b/src/hooks/useVersionCheck.ts
+index 96d0274..f49a817 100644
+--- a/src/hooks/useVersionCheck.ts
++++ b/src/hooks/useVersionCheck.ts
+@@ -1,4 +1,5 @@
+ import { useState, useEffect } from 'react';
+ import { version } from '../../package.json';
++import { POCKETCODEX_MODE } from '../constants/config';
+ import { ReleaseInfo } from '../types/sharedTypes';
+ 
+@@ -56,6 +57,7 @@ export const useVersionCheck = (owner: string, repo: string) => {
+   }, []);
+ 
+   useEffect(() => {
++    if (POCKETCODEX_MODE) return undefined;
+     const checkVersion = async () => {
+       try {
+         const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/releases/latest`);

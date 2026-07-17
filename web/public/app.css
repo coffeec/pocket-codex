@@ -25,6 +25,10 @@
   letter-spacing: 0;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   width: 100%;
@@ -316,8 +320,86 @@ button:active {
   min-width: 0;
   height: 100dvh;
   overflow: hidden;
-  grid-template-rows: 58px auto minmax(0, 1fr) auto;
+  grid-template-rows: 58px auto auto minmax(0, 1fr) auto;
   background: var(--bg);
+}
+
+.mode-toolbar {
+  display: flex;
+  min-width: 0;
+  min-height: 46px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--panel);
+}
+
+.mode-switch {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(3, minmax(58px, 1fr));
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.mode-switch button {
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.mode-switch button.is-active {
+  background: var(--surface-strong);
+  color: var(--accent-strong);
+}
+
+.context-select {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.context-select select {
+  width: min(230px, 34vw);
+  min-width: 0;
+  height: 32px;
+  padding: 0 28px 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: 11px ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+.context-select select:focus {
+  border-color: #548460;
+}
+
+.add-project {
+  flex-basis: 32px;
+  width: 32px;
+  height: 32px;
+  font-size: 18px;
+}
+
+.main-panel[data-mode="gpt"] .status-grid,
+.main-panel[data-mode="agent"] .status-grid {
+  display: none;
 }
 
 .topbar {
@@ -644,6 +726,25 @@ button:active {
   font-size: 10px;
 }
 
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.message-attachments span {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .details-list {
   display: grid;
   width: 100%;
@@ -719,6 +820,11 @@ button:active {
   white-space: pre-wrap;
 }
 
+.diff-output {
+  color: #c7d8ca;
+  tab-size: 2;
+}
+
 .working-line {
   display: inline-flex;
   align-items: center;
@@ -745,13 +851,68 @@ button:active {
   background: rgb(16 19 17 / 97%);
 }
 
+.attachment-tray {
+  display: flex;
+  max-height: 86px;
+  gap: 6px;
+  margin-bottom: 7px;
+  overflow-x: auto;
+}
+
+.attachment-chip {
+  display: flex;
+  min-width: 0;
+  max-width: 260px;
+  flex: 0 0 auto;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.attachment-chip span {
+  overflow: hidden;
+  padding: 6px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-chip button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+
 .composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
   align-items: end;
   border: 1px solid #3a433c;
   border-radius: var(--radius);
   background: var(--surface);
+}
+
+.attach-button {
+  width: 44px;
+  height: 44px;
+  margin: 2px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 22px;
+}
+
+.attach-button:hover {
+  background: var(--surface-strong);
+  color: var(--accent-strong);
 }
 
 .composer:focus-within {
@@ -802,7 +963,138 @@ button:active {
 }
 
 .composer.is-running {
-  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+}
+
+.login-screen {
+  position: fixed;
+  z-index: 200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #0b0d0c;
+}
+
+.login-screen[hidden] {
+  display: none;
+}
+
+.login-panel {
+  display: grid;
+  width: min(100%, 360px);
+  gap: 14px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.login-panel h1 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.login-panel label,
+.project-dialog form > label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.login-panel input,
+.project-dialog input[type="text"],
+.project-dialog #projectName {
+  width: 100%;
+  height: 42px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.login-panel input:focus,
+.project-dialog input:focus {
+  border-color: #548460;
+}
+
+.login-panel > button,
+.project-dialog button.primary {
+  min-height: 42px;
+  border: 1px solid #5fbd82;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-ink);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.form-error {
+  min-height: 17px;
+  margin: 0;
+  color: #ffaaaa;
+  font-size: 11px;
+}
+
+.project-dialog {
+  width: min(440px, calc(100vw - 24px));
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.project-dialog::backdrop {
+  background: rgb(0 0 0 / 68%);
+}
+
+.project-dialog form {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.project-dialog header,
+.project-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.project-dialog fieldset {
+  display: flex;
+  gap: 18px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.project-dialog legend {
+  padding: 0 5px;
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.project-dialog footer {
+  justify-content: flex-end;
+}
+
+.project-dialog footer button {
+  min-width: 78px;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
 }
 
 .composer.is-running .send-button {
@@ -891,7 +1183,32 @@ button:active {
   }
 
   .main-panel {
-    grid-template-rows: 54px auto minmax(0, 1fr) auto;
+    grid-template-rows: 54px auto auto minmax(0, 1fr) auto;
+  }
+
+  .mode-toolbar {
+    min-height: 44px;
+    gap: 6px;
+    padding: 5px 8px;
+    overflow-x: auto;
+  }
+
+  .mode-switch {
+    grid-template-columns: repeat(3, minmax(52px, 1fr));
+  }
+
+  .mode-switch button {
+    min-height: 30px;
+    padding: 0 7px;
+    font-size: 10px;
+  }
+
+  .context-select > span {
+    display: none;
+  }
+
+  .context-select select {
+    width: min(40vw, 180px);
   }
 
   .topbar {
@@ -995,7 +1312,7 @@ button:active {
 
 @media (max-width: 760px) {
   .compact-ui .main-panel {
-    grid-template-rows: 48px auto minmax(0, 1fr) auto;
+    grid-template-rows: 48px auto auto minmax(0, 1fr) auto;
   }
 
   .compact-ui .topbar {

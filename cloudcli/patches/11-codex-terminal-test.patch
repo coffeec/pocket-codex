@@ -1,0 +1,29 @@
+diff --git a/server/modules/providers/tests/codex-sessions.test.ts b/server/modules/providers/tests/codex-sessions.test.ts
+--- a/server/modules/providers/tests/codex-sessions.test.ts
++++ b/server/modules/providers/tests/codex-sessions.test.ts
+@@ -6,6 +6,7 @@ import path from 'node:path';
+ import test from 'node:test';
+ 
+ import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
++import { CodexSessionsProvider } from '@/modules/providers/list/codex/codex-sessions.provider.js';
+ import { CodexSessionSynchronizer } from '@/modules/providers/list/codex/codex-session-synchronizer.provider.js';
+ 
+ const patchHomeDir = (nextHomeDir: string) => {
+@@ -62,6 +63,17 @@ const writeCodexTranscript = async (
+   return filePath;
+ };
+ 
++test('Codex turn completion includes the shared terminal contract', () => {
++  const provider = new CodexSessionsProvider();
++  const [message] = provider.normalizeMessage({ type: 'turn_complete' }, 'app-session-1');
++
++  assert.equal(message?.kind, 'complete');
++  assert.equal(message?.sessionId, 'app-session-1');
++  assert.equal(message?.exitCode, 0);
++  assert.equal(message?.success, true);
++  assert.equal(message?.aborted, false);
++});
++
+ test('Codex synchronizer titles app-created sessions from the first user message', { concurrency: false }, async () => {
+   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-session-sync-app-'));
+   const workspacePath = path.join(tempRoot, 'workspace');

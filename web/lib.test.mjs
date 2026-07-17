@@ -16,12 +16,15 @@ test('ConversationStore persists messages and thread metadata', () => {
   const file = path.join(directory, 'conversations.json');
   const store = new ConversationStore(file);
   const conversation = store.create();
+  assert.equal(conversation.reasoningEffort, 'high');
   store.addMessage(conversation.id, { role: 'user', text: '检查服务器当前状态', status: 'completed' });
   store.updateThread(conversation.id, 'thread-123');
+  store.updateSettings(conversation.id, { reasoningEffort: 'xhigh' });
 
   const reloaded = new ConversationStore(file);
   assert.equal(reloaded.get(conversation.id).title, '检查服务器当前状态');
   assert.equal(reloaded.get(conversation.id).threadId, 'thread-123');
+  assert.equal(reloaded.get(conversation.id).reasoningEffort, 'xhigh');
   assert.equal(reloaded.list()[0].messageCount, 1);
 });
 

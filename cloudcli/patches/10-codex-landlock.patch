@@ -1,0 +1,42 @@
+diff --git a/server/modules/providers/list/codex/codex-sessions.provider.ts b/server/modules/providers/list/codex/codex-sessions.provider.ts
+--- a/server/modules/providers/list/codex/codex-sessions.provider.ts
++++ b/server/modules/providers/list/codex/codex-sessions.provider.ts
+@@ -5,7 +5,7 @@ import { sessionsDb } from '@/modules/database/index.js';
+ import { toImageAttachments } from '@/shared/image-attachments.js';
+ import type { IProviderSessions } from '@/shared/interfaces.js';
+ import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
+-import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
++import { createCompleteMessage, createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
+ 
+ const PROVIDER = 'codex';
+ 
+@@ -527,11 +527,10 @@ export class CodexSessionsProvider implements IProviderSessions {
+ 
+     if (raw.type === 'turn_complete') {
+-      return [createNormalizedMessage({
+-        id: baseId,
+-        sessionId,
+-        timestamp: ts,
++      return [createCompleteMessage({
+         provider: PROVIDER,
+-        kind: 'complete',
++        sessionId,
++        actualSessionId: sessionId,
++        exitCode: 0,
+       })];
+     }
+     if (raw.type === 'turn_failed') {
+diff --git a/server/openai-codex.js b/server/openai-codex.js
+--- a/server/openai-codex.js
++++ b/server/openai-codex.js
+@@ -267,7 +267,9 @@ export async function queryCodex(command, options = {}, ws) {
+   const abortController = new AbortController();
+ 
+   try {
+-    codex = new Codex();
++    codex = new Codex({
++      codexPathOverride: process.env.POCKET_CODEX_PATH || undefined,
++    });
+ 
+     const threadOptions = {
+       workingDirectory,

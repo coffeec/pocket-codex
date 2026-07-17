@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ubuntu Health"
+  short_description: "Diagnose Ubuntu health with read-only host checks"
+  default_prompt: "Use -health to assess server resources and service health."

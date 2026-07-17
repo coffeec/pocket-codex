@@ -1,0 +1,337 @@
+diff --git a/index.html b/index.html
+index 1fdfcc7..d2f3c41 100644
+--- a/index.html
++++ b/index.html
+@@ -5,7 +5,7 @@
+     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+     <link rel="icon" type="image/png" href="/favicon.png" />
+     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+-    <title>CloudCLI UI</title>
++    <title>PocketCodex Agent</title>
+ 
+     <!-- Fonts: Encode Sans (UI) + Merriweather (chat) -->
+     <link rel="preconnect" href="https://fonts.googleapis.com" />
+@@ -21,15 +21,15 @@
+     <!-- iOS Safari PWA Meta Tags -->
+     <meta name="mobile-web-app-capable" content="yes" />
+     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+-    <meta name="apple-mobile-web-app-title" content="Claude UI" />
++    <meta name="apple-mobile-web-app-title" content="PocketCodex" />
+     
+     <!-- iOS Safari Icons -->
+     <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
+     <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png" />
+     
+     <!-- Theme Color -->
+-    <meta name="theme-color" content="#ffffff" />
+-    <meta name="msapplication-TileColor" content="#ffffff" />
++    <meta name="theme-color" content="#171717" />
++    <meta name="msapplication-TileColor" content="#171717" />
+     
+     <!-- Prevent zoom on iOS -->
+     <meta name="format-detection" content="telephone=no" />
+@@ -37,20 +37,5 @@
+   <body>
+     <div id="root"></div>
+     <script type="module" src="/src/main.jsx"></script>
+-    
+-    <!-- Service Worker Registration -->
+-    <script>
+-      if ('serviceWorker' in navigator) {
+-        window.addEventListener('load', () => {
+-          navigator.serviceWorker.register('/sw.js')
+-            .then(registration => {
+-              console.log('SW registered: ', registration);
+-            })
+-            .catch(registrationError => {
+-              console.log('SW registration failed: ', registrationError);
+-            });
+-        });
+-      }
+-    </script>
+   </body>
+ </html>
+diff --git a/src/components/app/AppContent.tsx b/src/components/app/AppContent.tsx
+index d94b75d..5bb15dd 100644
+--- a/src/components/app/AppContent.tsx
++++ b/src/components/app/AppContent.tsx
+@@ -12,6 +12,7 @@ import { useSessionProtection } from '../../hooks/useSessionProtection';
+ import { useProjectsState } from '../../hooks/useProjectsState';
+ import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
+ import { api } from '../../utils/api';
++import PocketModeBar from './PocketModeBar';
+ 
+ type RunningSessionApiItem = {
+   sessionId?: unknown;
+@@ -203,7 +204,9 @@ function AppContentInner() {
+   }, []);
+ 
+   return (
+-    <div className="fixed inset-0 flex bg-background" style={{ bottom: 'var(--keyboard-height, 0px)' }}>
++    <div className="fixed inset-0 flex flex-col bg-background" style={{ bottom: 'var(--keyboard-height, 0px)' }}>
++      <PocketModeBar />
++      <div className="flex min-h-0 flex-1">
+       {!isMobile ? (
+         <div className="h-full flex-shrink-0 border-r border-border/50">
+           <Sidebar {...sidebarSharedProps} />
+@@ -270,6 +273,7 @@ function AppContentInner() {
+         onOpenSettings={() => openSettings()}
+         onShowTab={setActiveTab}
+       />
++      </div>
+     </div>
+   );
+ }
+diff --git a/src/components/app/PocketModeBar.tsx b/src/components/app/PocketModeBar.tsx
+new file mode 100644
+index 0000000..ca74528
+--- /dev/null
++++ b/src/components/app/PocketModeBar.tsx
+@@ -0,0 +1,33 @@
++const modes = [
++  { label: 'GPT', href: '/?mode=gpt' },
++  { label: 'Agent', href: '/agent/', active: true },
++  { label: 'Server', href: '/?mode=server' },
++];
++
++export default function PocketModeBar() {
++  return (
++    <header className="flex h-11 shrink-0 items-center border-b border-border/70 bg-card px-2 sm:px-3">
++      <a href="/?mode=gpt" className="hidden min-w-0 items-center gap-2 px-2 sm:flex" aria-label="PocketCodex GPT">
++        <span className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">P</span>
++        <span className="truncate text-sm font-semibold text-foreground">PocketCodex</span>
++      </a>
++      <nav className="mx-auto flex h-8 items-center rounded-md border border-border bg-background p-0.5" aria-label="PocketCodex modes">
++        {modes.map((mode) => (
++          <a
++            key={mode.label}
++            href={mode.href}
++            aria-current={mode.active ? 'page' : undefined}
++            className={`flex h-7 min-w-[4.5rem] items-center justify-center rounded px-3 text-xs font-medium sm:min-w-[5.25rem] ${
++              mode.active
++                ? 'bg-primary text-primary-foreground'
++                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
++            }`}
++          >
++            {mode.label}
++          </a>
++        ))}
++      </nav>
++      <div className="hidden w-[8.75rem] sm:block" aria-hidden="true" />
++    </header>
++  );
++}
+diff --git a/src/components/chat/hooks/useChatProviderState.ts b/src/components/chat/hooks/useChatProviderState.ts
+index 1d0aac5..49ba438 100644
+--- a/src/components/chat/hooks/useChatProviderState.ts
++++ b/src/components/chat/hooks/useChatProviderState.ts
+@@ -19,17 +19,17 @@ import {
+ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
+   claude: 'default',
+   cursor: 'gpt-5.3-codex',
+-  codex: 'gpt-5.4',
++  codex: 'gpt-5.6-sol',
+   opencode: 'anthropic/claude-sonnet-4-5',
+ };
+ 
+-const PROVIDERS: LLMProvider[] = ['claude', 'cursor', 'codex', 'opencode'];
++const PROVIDERS: LLMProvider[] = ['codex'];
+ 
+ const readStoredProvider = (): LLMProvider => {
+   const storedProvider = localStorage.getItem('selected-provider');
+   return PROVIDERS.includes(storedProvider as LLMProvider)
+     ? storedProvider as LLMProvider
+-    : 'claude';
++    : 'codex';
+ };
+ 
+ /**
+@@ -41,7 +41,7 @@ const readStoredProvider = (): LLMProvider => {
+ const FALLBACK_PERMISSION_MODES: Record<LLMProvider, PermissionMode[]> = {
+   claude: ['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan'],
+   cursor: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
+-  codex: ['default', 'acceptEdits', 'bypassPermissions'],
++  codex: ['acceptEdits', 'default'],
+   opencode: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
+ };
+ 
+@@ -88,7 +88,7 @@ type ChangeActiveModelApiResponse = {
+ };
+ 
+ export function useChatProviderState({ selectedSession, selectedProject: _selectedProject }: UseChatProviderStateArgs) {
+-  const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
++  const [permissionMode, setPermissionMode] = useState<PermissionMode>('acceptEdits');
+   const [pendingPermissionRequests, setPendingPermissionRequests] = useState<PendingPermissionRequest[]>([]);
+   const [provider, setProvider] = useState<LLMProvider>(readStoredProvider);
+   const [cursorModel, setCursorModel] = useState<string>(() => {
+@@ -102,7 +102,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
+   });
+   const [providerEfforts, setProviderEfforts] = useState<Partial<Record<LLMProvider, string>>>(() => {
+     return PROVIDERS.reduce<Partial<Record<LLMProvider, string>>>((acc, targetProvider) => {
+-      acc[targetProvider] = localStorage.getItem(`${targetProvider}-effort`) || DEFAULT_EFFORT_VALUE;
++      acc[targetProvider] = localStorage.getItem(`${targetProvider}-effort`) || 'high';
+       return acc;
+     }, {});
+   });
+diff --git a/src/components/chat/view/subcomponents/ProviderSelectionEmptyState.tsx b/src/components/chat/view/subcomponents/ProviderSelectionEmptyState.tsx
+index 6772ae0..dd9803f 100644
+--- a/src/components/chat/view/subcomponents/ProviderSelectionEmptyState.tsx
++++ b/src/components/chat/view/subcomponents/ProviderSelectionEmptyState.tsx
+@@ -24,10 +24,7 @@ import {
+ } from "../../../../shared/view/ui";
+ 
+ const PROVIDER_META: { id: LLMProvider; name: string }[] = [
+-  { id: "claude", name: "Anthropic" },
+-  { id: "codex", name: "OpenAI" },
+-  { id: "cursor", name: "Cursor" },
+-  { id: "opencode", name: "OpenCode" },
++  { id: "codex", name: "Codex via Sub2API" },
+ ];
+ 
+ const MOD_KEY =
+diff --git a/src/components/provider-auth/types.ts b/src/components/provider-auth/types.ts
+index 5511c18..3315c08 100644
+--- a/src/components/provider-auth/types.ts
++++ b/src/components/provider-auth/types.ts
+@@ -10,7 +10,7 @@ export type ProviderAuthStatus = {
+ 
+ export type ProviderAuthStatusMap = Record<LLMProvider, ProviderAuthStatus>;
+ 
+-export const CLI_PROVIDERS: LLMProvider[] = ['claude', 'cursor', 'codex', 'opencode'];
++export const CLI_PROVIDERS: LLMProvider[] = ['codex'];
+ 
+ export const PROVIDER_AUTH_STATUS_ENDPOINTS: Record<LLMProvider, string> = {
+   claude: '/api/providers/claude/auth/status',
+diff --git a/src/constants/config.ts b/src/constants/config.ts
+index 6aa7885..8b0a537 100644
+--- a/src/constants/config.ts
++++ b/src/constants/config.ts
+@@ -4,6 +4,9 @@
+  */
+ export const IS_PLATFORM = import.meta.env.VITE_IS_PLATFORM === 'true';
+ 
++/** PocketCodex owns authentication, navigation, and the fixed dark theme. */
++export const POCKETCODEX_MODE = import.meta.env.VITE_POCKETCODEX_MODE === 'true';
++
+ /**
+  * For empty shell instances where no project is provided,
+  * we use a default project object to ensure the shell can still function.
+@@ -18,4 +21,4 @@ export const DEFAULT_PROJECT_FOR_EMPTY_SHELL = {
+   displayName: 'default',
+   fullPath: IS_PLATFORM ? '/workspace' : '',
+   path: IS_PLATFORM ? '/workspace' : '',
+-};
+\ No newline at end of file
++};
+diff --git a/src/contexts/ThemeContext.jsx b/src/contexts/ThemeContext.jsx
+index 1dc9143..2508f50 100644
+--- a/src/contexts/ThemeContext.jsx
++++ b/src/contexts/ThemeContext.jsx
+@@ -1,4 +1,5 @@
+ import React, { createContext, useContext, useState, useEffect } from 'react';
++import { POCKETCODEX_MODE } from '../constants/config';
+ 
+ const ThemeContext = createContext();
+ 
+@@ -13,6 +14,9 @@ export const useTheme = () => {
+ export const ThemeProvider = ({ children }) => {
+   // Check for saved theme preference or default to system preference
+   const [isDarkMode, setIsDarkMode] = useState(() => {
++    if (POCKETCODEX_MODE) {
++      return true;
++    }
+     // Check localStorage first
+     const savedTheme = localStorage.getItem('theme');
+     if (savedTheme) {
+@@ -29,7 +33,7 @@ export const ThemeProvider = ({ children }) => {
+ 
+   // Update document class and localStorage when theme changes
+   useEffect(() => {
+-    if (isDarkMode) {
++    if (POCKETCODEX_MODE || isDarkMode) {
+       document.documentElement.classList.add('dark');
+       localStorage.setItem('theme', 'dark');
+       
+@@ -78,6 +82,7 @@ export const ThemeProvider = ({ children }) => {
+   }, []);
+ 
+   const toggleDarkMode = () => {
++    if (POCKETCODEX_MODE) return;
+     setIsDarkMode(prev => !prev);
+   };
+ 
+diff --git a/src/index.css b/src/index.css
+index adbcb0d..683c481 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -85,13 +85,13 @@
+   }
+ 
+   .dark {
+-    --background: 0 0% 8%;
++    --background: 0 0% 9%;
+     --foreground: 40 8% 93%;
+     --card: 0 0% 12%;
+     --card-foreground: 40 8% 93%;
+     --popover: 0 0% 12%;
+     --popover-foreground: 40 8% 93%;
+-    --primary: 217.2 91.2% 59.8%;
++    --primary: 151 55% 48%;
+     --primary-foreground: 0 0% 8%;
+     --secondary: 0 0% 17%;
+     --secondary-foreground: 40 8% 93%;
+@@ -103,19 +103,19 @@
+     --destructive-foreground: 40 8% 93%;
+     --border: 0 0% 17%;
+     --input: 0 0% 23%;
+-    --ring: 217.2 91.2% 59.8%;
++    --ring: 151 55% 48%;
+ 
+     /* Nav design tokens — dark overrides */
+     --nav-glass-bg: 0 0% 12% / 0.55;
+     --nav-glass-blur: 24px;
+     --nav-glass-saturate: 1.6;
+-    --nav-tab-glow: 217.2 91.2% 59.8% / 0.25;
+-    --nav-tab-ring: 217.2 91.2% 59.8% / 0.15;
++    --nav-tab-glow: 151 55% 48% / 0.20;
++    --nav-tab-ring: 151 55% 48% / 0.14;
+     --nav-float-shadow: 0 0% 0% / 0.35;
+     --nav-float-ring: 0 0% 17% / 0.3;
+     --nav-divider-color: 0 0% 17% / 0.5;
+     --nav-input-bg: 0 0% 17% / 0.5;
+-    --nav-input-focus-ring: 217.2 91.2% 59.8% / 0.25;
++    --nav-input-focus-ring: 151 55% 48% / 0.24;
+   }
+ }
+ 
+diff --git a/src/main.jsx b/src/main.jsx
+index 0c88aea..dd4b1f9 100644
+--- a/src/main.jsx
++++ b/src/main.jsx
+@@ -6,10 +6,11 @@ import 'katex/dist/katex.min.css'
+ 
+ // Initialize i18n
+ import './i18n/config.js'
++import { POCKETCODEX_MODE } from './constants/config.ts'
+ 
+ // Register service worker for PWA + Web Push support
+-if ('serviceWorker' in navigator) {
+-  navigator.serviceWorker.register('/sw.js').catch(err => {
++if (!POCKETCODEX_MODE && 'serviceWorker' in navigator) {
++  navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(err => {
+     console.warn('Service worker registration failed:', err);
+   });
+ }
+diff --git a/vite.config.js b/vite.config.js
+index 664fd30..d1f2613 100755
+--- a/vite.config.js
++++ b/vite.config.js
+@@ -19,6 +19,7 @@ export default defineConfig(({ mode }) => {
+   const serverPort = env.SERVER_PORT || env.PORT || 3001
+ 
+   return {
++    base: env.VITE_BASE_PATH || '/',
+     plugins: [react()],
+     resolve: {
+       alias: {
+

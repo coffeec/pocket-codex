@@ -12,6 +12,11 @@ const { server } = createCodexWebApp({
   password,
   username: process.env.WEB_USER || 'admin',
   mockMode: process.env.CODEX_WEB_MOCK === '1',
+  ssdRoot: process.env.POCKET_SSD_ROOT,
+  diskRoot: process.env.POCKET_DISK_ROOT,
+  sub2apiBaseUrl: process.env.SUB2API_BASE_URL,
+  agentHost: process.env.CLOUDCLI_HOST,
+  agentPort: process.env.CLOUDCLI_PORT,
 });
 
 server.listen(port, host, () => {

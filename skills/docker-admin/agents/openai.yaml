@@ -1,0 +1,4 @@
+interface:
+  display_name: "Docker Admin"
+  short_description: "Work with project Docker configs without host socket access"
+  default_prompt: "Use -admin to inspect and improve Docker files in the registered project."

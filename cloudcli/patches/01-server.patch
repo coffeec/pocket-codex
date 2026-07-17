@@ -1,0 +1,544 @@
+diff --git a/server/constants/config.js b/server/constants/config.js
+index 580a985..d1ececd 100644
+--- a/server/constants/config.js
++++ b/server/constants/config.js
+@@ -2,4 +2,7 @@
+  * Environment Flag: Is Platform
+  * Indicates if the app is running in Platform mode (hosted) or OSS mode (self-hosted)
+  */
+-export const IS_PLATFORM = process.env.VITE_IS_PLATFORM === 'true';
+\ No newline at end of file
++export const IS_PLATFORM = process.env.VITE_IS_PLATFORM === 'true';
++
++/** PocketCodex embeds CloudCLI behind its own authenticated reverse proxy. */
++export const POCKETCODEX_MODE = process.env.VITE_POCKETCODEX_MODE === 'true';
+diff --git a/server/index.js b/server/index.js
+index 0832c49..61dc48c 100755
+--- a/server/index.js
++++ b/server/index.js
+@@ -64,10 +64,10 @@ import { assetsRoutes } from './modules/assets/index.js';
+ import browserUseMcpRoutes from './modules/browser-use/browser-use-mcp.routes.js';
+ import { browserUseService } from './modules/browser-use/browser-use.service.js';
+ import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
+-import { initializeDatabase, projectsDb, sessionsDb } from './modules/database/index.js';
++import { initializeDatabase, projectsDb, sessionsDb, userDb } from './modules/database/index.js';
+ import { configureWebPush } from './services/vapid-keys.js';
+ import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
+-import { IS_PLATFORM } from './constants/config.js';
++import { IS_PLATFORM, POCKETCODEX_MODE } from './constants/config.js';
+ import { c } from './utils/colors.js';
+ 
+ const __dirname = getModuleDir(import.meta.url);
+@@ -88,9 +88,9 @@ const RUNNING_VERSION = (() => {
+         return null;
+     }
+ })();
+-const MAX_FILE_UPLOAD_SIZE_MB = 200;
++const MAX_FILE_UPLOAD_SIZE_MB = 20;
+ const MAX_FILE_UPLOAD_SIZE_BYTES = MAX_FILE_UPLOAD_SIZE_MB * 1024 * 1024;
+-const MAX_FILE_UPLOAD_COUNT = 20;
++const MAX_FILE_UPLOAD_COUNT = 10;
+ 
+ console.log('SERVER_PORT from env:', process.env.SERVER_PORT);
+ 
+@@ -146,7 +146,7 @@ app.locals.wss = wss;
+ 
+ app.use(cors({ exposedHeaders: ['X-Refreshed-Token'] }));
+ app.use(express.json({
+-    limit: '50mb',
++    limit: '20mb',
+     type: (req) => {
+         // Skip multipart/form-data requests (for file uploads like images)
+         const contentType = req.headers['content-type'] || '';
+@@ -156,7 +156,7 @@ app.use(express.json({
+         return contentType.includes('json');
+     }
+ }));
+-app.use(express.urlencoded({ limit: '50mb', extended: true }));
++app.use(express.urlencoded({ limit: '20mb', extended: true }));
+ 
+ // Public health check endpoint (no authentication required)
+ app.get('/health', (req, res) => {
+@@ -172,7 +172,9 @@ app.get('/health', (req, res) => {
+ app.use('/api', validateApiKey);
+ 
+ // Authentication routes (public)
+-app.use('/api/auth', authRoutes);
++if (!POCKETCODEX_MODE) {
++    app.use('/api/auth', authRoutes);
++}
+ 
+ // Projects API Routes (protected)
+ app.use('/api/projects', authenticateToken, projectModuleRoutes);
+@@ -204,21 +206,31 @@ app.use('/api/notifications', authenticateToken, notificationRoutes);
+ app.use('/api/user', authenticateToken, userRoutes);
+ 
+ // Plugins API Routes (protected)
+-app.use('/api/plugins', authenticateToken, pluginsRoutes);
++if (!POCKETCODEX_MODE) {
++    app.use('/api/plugins', authenticateToken, pluginsRoutes);
++}
+ 
+ // Browser MCP bridge API (local token protected)
+-app.use('/api/browser-use-mcp', browserUseMcpRoutes);
++if (!POCKETCODEX_MODE) {
++    app.use('/api/browser-use-mcp', browserUseMcpRoutes);
++}
+ 
+ // Browser API Routes (protected)
+-app.use('/api/browser-use', authenticateToken, browserUseRoutes);
++if (!POCKETCODEX_MODE) {
++    app.use('/api/browser-use', authenticateToken, browserUseRoutes);
++}
+ 
+ // Unified provider MCP routes (protected)
+ app.use('/api/providers', authenticateToken, providerRoutes);
+ 
+ // Agent API Routes (uses API key authentication)
+-app.use('/api/agent', agentRoutes);
++if (!POCKETCODEX_MODE) {
++    app.use('/api/agent', agentRoutes);
++}
+ 
+-app.use('/api/voice', authenticateToken, voiceRoutes);
++if (!POCKETCODEX_MODE) {
++    app.use('/api/voice', authenticateToken, voiceRoutes);
++}
+ 
+ // Serve public files (like api-docs.html)
+ app.use(express.static(path.join(APP_ROOT, 'public')));
+@@ -245,6 +257,9 @@ app.use(express.static(path.join(APP_ROOT, 'dist'), {
+ 
+ // System update endpoint
+ app.post('/api/system/update', authenticateToken, async (req, res) => {
++    if (POCKETCODEX_MODE) {
++        return res.status(403).json({ error: 'Self-update is disabled in PocketCodex mode' });
++    }
+     try {
+         // Get the project root directory (parent of server directory)
+         const projectRoot = APP_ROOT;
+@@ -1578,6 +1593,11 @@ async function startServer() {
+         // Initialize authentication database
+         await initializeDatabase();
+ 
++        if (POCKETCODEX_MODE && !userDb.hasUsers()) {
++            const user = userDb.createUser('pocketcodex', 'login-disabled');
++            userDb.completeOnboarding(Number(user.id));
++        }
++
+         // Configure Web Push (VAPID keys)
+         configureWebPush();
+ 
+@@ -1615,9 +1635,11 @@ async function startServer() {
+             await initializeSessionsWatcher();
+ 
+             // Start server-side plugin processes for enabled plugins
+-            startEnabledPluginServers().catch(err => {
+-                console.error('[Plugins] Error during startup:', err.message);
+-            });
++            if (!POCKETCODEX_MODE) {
++                startEnabledPluginServers().catch(err => {
++                    console.error('[Plugins] Error during startup:', err.message);
++                });
++            }
+         });
+ 
+         await closeSessionsWatcher();
+diff --git a/server/modules/database/repositories/projects.db.ts b/server/modules/database/repositories/projects.db.ts
+index ddbec8f..a43d532 100644
+--- a/server/modules/database/repositories/projects.db.ts
++++ b/server/modules/database/repositories/projects.db.ts
+@@ -56,6 +56,11 @@ export const projectsDb = {
+         return row ?? null;
+     },
+ 
++    isActiveProjectPath(projectPath: string): boolean {
++        const project = projectsDb.getProjectPath(projectPath);
++        return Boolean(project && Number(project.isArchived) === 0);
++    },
++
+     getProjectById(projectId: string): ProjectRepositoryRow | null {
+         const db = getConnection();
+         const row = db.prepare(`
+diff --git a/server/modules/database/repositories/sessions.db.ts b/server/modules/database/repositories/sessions.db.ts
+index 407e4f8..c76c6f3 100644
+--- a/server/modules/database/repositories/sessions.db.ts
++++ b/server/modules/database/repositories/sessions.db.ts
+@@ -1,5 +1,6 @@
+ import { getConnection } from '@/modules/database/connection.js';
+ import { projectsDb } from '@/modules/database/repositories/projects.db.js';
++import { POCKETCODEX_MODE } from '@/constants/config.js';
+ import { normalizeProjectPath } from '@/shared/utils.js';
+ 
+ type SessionRow = {
+@@ -83,7 +84,12 @@ export const sessionsDb = {
+ 
+     // First, ensure the project path is recorded in the projects table,
+     // since it's a foreign key in the sessions table.
+-    projectsDb.createProjectPath(normalizedProjectPath);
++    if (POCKETCODEX_MODE && !projectsDb.isActiveProjectPath(normalizedProjectPath)) {
++      throw new Error('Session project is not registered or is archived');
++    }
++    if (!POCKETCODEX_MODE) {
++      projectsDb.createProjectPath(normalizedProjectPath);
++    }
+ 
+     const existing = db
+       .prepare(
+@@ -155,7 +161,12 @@ export const sessionsDb = {
+     const db = getConnection();
+     const normalizedProjectPath = normalizeProjectPathForProvider(provider, projectPath);
+ 
+-    projectsDb.createProjectPath(normalizedProjectPath);
++    if (POCKETCODEX_MODE && !projectsDb.isActiveProjectPath(normalizedProjectPath)) {
++      throw new Error('Session project is not registered or is archived');
++    }
++    if (!POCKETCODEX_MODE) {
++      projectsDb.createProjectPath(normalizedProjectPath);
++    }
+ 
+     db.prepare(
+       `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, isArchived, created_at, updated_at)
+diff --git a/server/modules/projects/services/project-clone.service.ts b/server/modules/projects/services/project-clone.service.ts
+index 4211f56..e3ad785 100644
+--- a/server/modules/projects/services/project-clone.service.ts
++++ b/server/modules/projects/services/project-clone.service.ts
+@@ -7,7 +7,7 @@ import spawn from 'cross-spawn';
+ import { githubTokensDb } from '@/modules/database/index.js';
+ import { createProject } from '@/modules/projects/services/project-management.service.js';
+ import type { WorkspacePathValidationResult } from '@/shared/types.js';
+-import { AppError, validateWorkspacePath } from '@/shared/utils.js';
++import { AppError, isPocketCodexStoragePath, validateWorkspacePath } from '@/shared/utils.js';
+ 
+ type CloneProjectInput = {
+   workspacePath: string;
+@@ -185,6 +185,12 @@ export async function startCloneProject(
+   }
+ 
+   const absolutePath = pathValidation.resolvedPath;
++  if (!isPocketCodexStoragePath(absolutePath, true)) {
++    throw new AppError('Clone destination must be inside the SSD or D drive workspace root', {
++      code: 'PROJECT_STORAGE_NOT_ALLOWED',
++      statusCode: 403,
++    });
++  }
+   await dependencies.ensureDirectory(absolutePath);
+ 
+   let githubToken: string | null = null;
+diff --git a/server/modules/projects/services/project-management.service.ts b/server/modules/projects/services/project-management.service.ts
+index 913c2fa..3da4d60 100644
+--- a/server/modules/projects/services/project-management.service.ts
++++ b/server/modules/projects/services/project-management.service.ts
+@@ -7,7 +7,7 @@ import type {
+   ProjectRepositoryRow,
+   WorkspacePathValidationResult,
+ } from '@/shared/types.js';
+-import { AppError, normalizeProjectPath, validateWorkspacePath } from '@/shared/utils.js';
++import { AppError, isPocketCodexStoragePath, normalizeProjectPath, validateWorkspacePath } from '@/shared/utils.js';
+ 
+ type CreateProjectInput = {
+   projectPath: string;
+@@ -107,6 +107,12 @@ export async function createProject(
+   }
+ 
+   const resolvedProjectPath = normalizeProjectPath(pathValidation.resolvedPath);
++  if (!isPocketCodexStoragePath(resolvedProjectPath)) {
++    throw new AppError('Project path must be inside the SSD or D drive workspace root', {
++      code: 'PROJECT_STORAGE_NOT_ALLOWED',
++      statusCode: 403,
++    });
++  }
+   await dependencies.ensureWorkspaceDirectory(resolvedProjectPath);
+ 
+   const normalizedCustomName = resolveDisplayName(input.customName ?? null, resolvedProjectPath);
+diff --git a/server/modules/providers/list/codex/codex-models.provider.ts b/server/modules/providers/list/codex/codex-models.provider.ts
+index bc15737..2bbe272 100644
+--- a/server/modules/providers/list/codex/codex-models.provider.ts
++++ b/server/modules/providers/list/codex/codex-models.provider.ts
+@@ -21,11 +21,19 @@ import {
+ 
+ export const CODEX_FALLBACK_MODELS: ProviderModelsDefinition = {
+   OPTIONS: [
++    {
++      value: 'gpt-5.6-sol',
++      label: 'gpt-5.6-sol',
++      effort: {
++        default: 'high',
++        values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
++      },
++    },
+     {
+       value: 'gpt-5.5',
+       label: 'gpt-5.5',
+       effort: {
+-        default: 'medium',
++        default: 'high',
+         values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
+       },
+     },
+@@ -33,7 +41,7 @@ export const CODEX_FALLBACK_MODELS: ProviderModelsDefinition = {
+       value: 'gpt-5.4',
+       label: 'gpt-5.4',
+       effort: {
+-        default: 'medium',
++        default: 'high',
+         values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
+       },
+     },
+@@ -41,12 +49,12 @@ export const CODEX_FALLBACK_MODELS: ProviderModelsDefinition = {
+       value: 'gpt-5.4-mini',
+       label: 'gpt-5.4-mini',
+       effort: {
+-        default: 'medium',
++        default: 'high',
+         values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
+       },
+     },
+   ],
+-  DEFAULT: 'gpt-5.4',
++  DEFAULT: 'gpt-5.6-sol',
+ };
+ 
+ type CodexCachedModel = {
+@@ -133,8 +141,43 @@ const buildCodexModelsDefinition = (models: CodexCachedModel[]): ProviderModelsD
+   };
+ };
+ 
++const readConfiguredModel = async (): Promise<string | null> => {
++  try {
++    const raw = await readFile(CODEX_CONFIG_PATH, 'utf8');
++    const parsed = readObjectRecord(TOML.parse(raw));
++    return readOptionalString(parsed?.model) ?? null;
++  } catch {
++    return null;
++  }
++};
++
++const withConfiguredModel = (
++  definition: ProviderModelsDefinition,
++  configuredModel: string | null,
++): ProviderModelsDefinition => {
++  if (!configuredModel) {
++    return definition;
++  }
++
++  const existing = definition.OPTIONS.find((option) => option.value === configuredModel);
++  const configuredOption: ProviderModelOption = existing ?? {
++    value: configuredModel,
++    label: configuredModel,
++    effort: {
++      default: 'high',
++      values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
++    },
++  };
++
++  return {
++    OPTIONS: [configuredOption, ...definition.OPTIONS.filter((option) => option.value !== configuredModel)],
++    DEFAULT: configuredModel,
++  };
++};
++
+ export class CodexProviderModels implements IProviderModels {
+   async getSupportedModels(): Promise<ProviderModelsDefinition> {
++    const configuredModel = await readConfiguredModel();
+     try {
+       const raw = await readFile(CODEX_MODELS_CACHE_PATH, 'utf8');
+       const parsed = readObjectRecord(JSON.parse(raw));
+@@ -142,17 +185,15 @@ export class CodexProviderModels implements IProviderModels {
+         ? parsed.models.filter(isCodexCachedModel)
+         : [];
+ 
+-      return buildCodexModelsDefinition(models);
++      return withConfiguredModel(buildCodexModelsDefinition(models), configuredModel);
+     } catch {
+-      return CODEX_FALLBACK_MODELS;
++      return withConfiguredModel(CODEX_FALLBACK_MODELS, configuredModel);
+     }
+   }
+ 
+   async getCurrentActiveModel(): Promise<ProviderCurrentActiveModel> {
+     try {
+-      const raw = await readFile(CODEX_CONFIG_PATH, 'utf8');
+-      const parsed = readObjectRecord(TOML.parse(raw));
+-      const model = readOptionalString(parsed?.model);
++      const model = await readConfiguredModel();
+       if (!model) {
+         return buildDefaultProviderCurrentActiveModel(await this.getSupportedModels());
+       }
+diff --git a/server/modules/providers/provider.registry.ts b/server/modules/providers/provider.registry.ts
+index 8c333fc..b98a78a 100644
+--- a/server/modules/providers/provider.registry.ts
++++ b/server/modules/providers/provider.registry.ts
+@@ -5,8 +5,9 @@ import { OpenCodeProvider } from '@/modules/providers/list/opencode/opencode.pro
+ import type { IProvider } from '@/shared/interfaces.js';
+ import type { LLMProvider } from '@/shared/types.js';
+ import { AppError } from '@/shared/utils.js';
++import { POCKETCODEX_MODE } from '@/constants/config.js';
+ 
+-const providers: Record<LLMProvider, IProvider> = {
++const providers: Partial<Record<LLMProvider, IProvider>> = {
+   claude: new ClaudeProvider(),
+   codex: new CodexProvider(),
+   cursor: new CursorProvider(),
+@@ -18,12 +19,14 @@ const providers: Record<LLMProvider, IProvider> = {
+  */
+ export const providerRegistry = {
+   listProviders(): IProvider[] {
+-    return Object.values(providers);
++    return POCKETCODEX_MODE
++      ? [providers.codex].filter((provider): provider is IProvider => Boolean(provider))
++      : Object.values(providers).filter((provider): provider is IProvider => Boolean(provider));
+   },
+ 
+   resolveProvider(provider: string): IProvider {
+     const key = provider as LLMProvider;
+-    const resolvedProvider = providers[key];
++    const resolvedProvider = POCKETCODEX_MODE && key !== 'codex' ? undefined : providers[key];
+     if (!resolvedProvider) {
+       throw new AppError(`Unsupported provider "${provider}".`, {
+         code: 'UNSUPPORTED_PROVIDER',
+diff --git a/server/modules/providers/services/provider-capabilities.service.ts b/server/modules/providers/services/provider-capabilities.service.ts
+index a144606..36c7a72 100644
+--- a/server/modules/providers/services/provider-capabilities.service.ts
++++ b/server/modules/providers/services/provider-capabilities.service.ts
+@@ -1,4 +1,5 @@
+ import type { LLMProvider } from '@/shared/types.js';
++import { POCKETCODEX_MODE } from '@/constants/config.js';
+ 
+ /**
+  * Static, backend-owned description of what one provider integration supports.
+@@ -54,8 +55,8 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
+   },
+   codex: {
+     provider: 'codex',
+-    permissionModes: ['default', 'acceptEdits', 'bypassPermissions'],
+-    defaultPermissionMode: 'default',
++    permissionModes: ['default', 'acceptEdits'],
++    defaultPermissionMode: 'acceptEdits',
+     supportsImages: true,
+     supportsAbort: true,
+     supportsPermissionRequests: false,
+@@ -86,6 +87,8 @@ export const providerCapabilitiesService = {
+   },
+ 
+   listAllProviderCapabilities(): ProviderCapabilities[] {
+-    return Object.values(PROVIDER_CAPABILITIES);
++    return POCKETCODEX_MODE
++      ? [PROVIDER_CAPABILITIES.codex]
++      : Object.values(PROVIDER_CAPABILITIES);
+   },
+ };
+diff --git a/server/modules/websocket/services/chat-websocket.service.ts b/server/modules/websocket/services/chat-websocket.service.ts
+index 48db675..6949d3f 100644
+--- a/server/modules/websocket/services/chat-websocket.service.ts
++++ b/server/modules/websocket/services/chat-websocket.service.ts
+@@ -12,6 +12,7 @@ import type {
+   LLMProvider,
+ } from '@/shared/types.js';
+ import { parseIncomingJsonObject } from '@/shared/utils.js';
++import { POCKETCODEX_MODE } from '@/constants/config.js';
+ 
+ /**
+  * Trust boundary for client-supplied image attachments: chat.send options come
+@@ -168,6 +169,11 @@ async function handleChatSend(
+     return;
+   }
+ 
++  if (POCKETCODEX_MODE && chatRunRegistry.listRunningRuns().some((run) => run.sessionId !== sessionId)) {
++    sendProtocolError(ws, 'AGENT_BUSY', 'Another Agent task is already running.', sessionId);
++    return;
++  }
++
+   const run = chatRunRegistry.startRun({
+     appSessionId: sessionId,
+     provider,
+diff --git a/server/modules/websocket/services/shell-websocket.service.ts b/server/modules/websocket/services/shell-websocket.service.ts
+index bb4ac5a..b98bb69 100644
+--- a/server/modules/websocket/services/shell-websocket.service.ts
++++ b/server/modules/websocket/services/shell-websocket.service.ts
+@@ -5,6 +5,7 @@ import path from 'node:path';
+ import pty, { type IPty } from 'node-pty';
+ import { WebSocket, type RawData } from 'ws';
+ 
++import { projectsDb } from '@/modules/database/index.js';
+ import { parseIncomingJsonObject } from '@/shared/utils.js';
+ 
+ type ShellIncomingMessage = {
+@@ -309,6 +310,10 @@ export function handleShellConnection(
+         }
+ 
+         const resolvedProjectPath = path.resolve(projectPath);
++        if (!projectsDb.isActiveProjectPath(resolvedProjectPath)) {
++          ws.send(JSON.stringify({ type: 'error', message: 'Project is not registered or is archived' }));
++          return;
++        }
+         try {
+           const stats = fs.statSync(resolvedProjectPath);
+           if (!stats.isDirectory()) {
+diff --git a/server/openai-codex.js b/server/openai-codex.js
+index 7ddbecf..8b1bcbc 100644
+--- a/server/openai-codex.js
++++ b/server/openai-codex.js
+@@ -14,7 +14,9 @@
+  */
+ 
+ import { Codex } from '@openai/codex-sdk';
++import path from 'node:path';
+ 
++import { projectsDb } from './modules/database/index.js';
+ import { buildCodexInputItems, normalizeImageDescriptors } from './shared/image-attachments.js';
+ import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
+ import { sessionsService } from './modules/providers/services/sessions.service.js';
+@@ -202,11 +204,6 @@ function mapPermissionModeToCodexOptions(permissionMode) {
+         sandboxMode: 'workspace-write',
+         approvalPolicy: 'never'
+       };
+-    case 'bypassPermissions':
+-      return {
+-        sandboxMode: 'danger-full-access',
+-        approvalPolicy: 'never'
+-      };
+     case 'default':
+     default:
+       return {
+@@ -240,7 +237,10 @@ export async function queryCodex(command, options = {}, ws) {
+     model,
+   );
+ 
+-  const workingDirectory = cwd || projectPath || process.cwd();
++  const workingDirectory = path.resolve(cwd || projectPath || process.cwd());
++  if (!projectsDb.isActiveProjectPath(workingDirectory)) {
++    throw new Error('Project is not registered or is archived');
++  }
+   const { sandboxMode, approvalPolicy } = mapPermissionModeToCodexOptions(permissionMode);
+   const catalog = (await providerModelsService.getProviderModels('codex')).models;
+   const selectedModel = catalog.OPTIONS.find((option) => option.value === resolvedModel) || null;
+diff --git a/server/shared/utils.ts b/server/shared/utils.ts
+index e448595..ecf8e72 100644
+--- a/server/shared/utils.ts
++++ b/server/shared/utils.ts
+@@ -112,6 +112,23 @@ export class AppError extends Error {
+  */
+ export const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || os.homedir();
+ 
++const POCKETCODEX_STORAGE_ROOTS = (process.env.POCKETCODEX_STORAGE_ROOTS || '/workspaces/ssd,/workspaces/disk')
++  .split(',')
++  .map((entry) => normalizeProjectPath(path.resolve(entry.trim())))
++  .filter(Boolean);
++
++export function isPocketCodexStoragePath(candidatePath: string, allowStorageRoot = false): boolean {
++  if (process.env.VITE_POCKETCODEX_MODE !== 'true') {
++    return true;
++  }
++
++  const normalizedCandidate = normalizeProjectPath(path.resolve(candidatePath));
++  return POCKETCODEX_STORAGE_ROOTS.some((storageRoot) => (
++    normalizedCandidate.startsWith(`${storageRoot}${path.sep}`)
++    || (allowStorageRoot && normalizedCandidate === storageRoot)
++  ));
++}
++
+ /**
+  * System-critical paths that must never be used as workspace roots.
+  *
+

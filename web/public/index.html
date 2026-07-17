@@ -36,7 +36,7 @@
 
     <button class="sidebar-scrim" id="sidebarScrim" type="button" aria-label="关闭会话列表"></button>
 
-    <main class="main-panel">
+    <main class="main-panel" id="mainPanel">
       <header class="topbar">
         <button class="icon-button menu-button" id="openSidebar" type="button" aria-label="打开会话列表" title="会话列表">☰</button>
         <div class="topbar-title">
@@ -46,6 +46,32 @@
         <button class="icon-button density-button" id="densityToggle" type="button" aria-label="切换紧凑显示" title="紧凑显示">A-</button>
         <button class="icon-button" id="refreshStatus" type="button" aria-label="刷新系统状态" title="刷新状态">↻</button>
       </header>
+
+      <section class="mode-toolbar" aria-label="工作模式">
+        <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="模式">
+          <button type="button" role="tab" data-mode="gpt" aria-selected="true">GPT</button>
+          <button type="button" role="tab" data-mode="agent" aria-selected="false">Agent</button>
+          <button type="button" role="tab" data-mode="server" aria-selected="false">服务器</button>
+        </div>
+        <label class="context-select" id="modelControl">
+          <span>模型</span>
+          <select id="modelSelect" aria-label="模型"></select>
+        </label>
+        <label class="context-select" id="effortControl">
+          <span>推理</span>
+          <select id="effortSelect" aria-label="推理强度">
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high" selected>high</option>
+            <option value="xhigh">xhigh</option>
+          </select>
+        </label>
+        <label class="context-select" id="projectControl" hidden>
+          <span>项目</span>
+          <select id="projectSelect" aria-label="登记项目"></select>
+        </label>
+        <button class="icon-button add-project" id="addProjectButton" type="button" title="创建项目" aria-label="创建项目" hidden>＋</button>
+      </section>
 
       <section class="status-grid is-loading" id="statusGrid" aria-label="服务器状态">
         <div class="status-item">
@@ -93,17 +119,43 @@
       </section>
 
       <footer class="composer-wrap">
+        <div class="attachment-tray" id="attachmentTray" hidden></div>
         <form class="composer" id="composer">
-          <textarea id="promptInput" rows="1" maxlength="8000" placeholder="给服务器助手发送消息" aria-label="消息"></textarea>
+          <button class="attach-button" id="attachButton" type="button" aria-label="添加附件" title="添加附件">＋</button>
+          <input id="fileInput" type="file" multiple hidden accept="image/*,.txt,.md,.csv,.log,.js,.mjs,.cjs,.ts,.tsx,.jsx,.css,.html,.xml,.json,.yaml,.yml,.toml,.ini,.sh,.ps1,.py,.go,.rs,.java,.c,.h,.cpp,.hpp">
+          <textarea id="promptInput" rows="1" maxlength="16000" placeholder="发送消息" aria-label="消息"></textarea>
           <button class="send-button" id="sendButton" type="submit" aria-label="发送" title="发送">↑</button>
           <button class="stop-button" id="stopButton" type="button" aria-label="停止任务" title="停止任务">■</button>
         </form>
-        <div class="composer-meta"><span id="runState">就绪</span><span id="characterCount">0 / 8000</span></div>
+        <div class="composer-meta"><span id="runState">就绪</span><span id="characterCount">0 / 16000</span></div>
       </footer>
     </main>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="login-screen" id="loginScreen" hidden>
+    <form class="login-panel" id="loginForm">
+      <div class="brand-mark" aria-hidden="true">C</div>
+      <h1>PocketCodex</h1>
+      <label><span>用户名</span><input id="loginUsername" name="username" autocomplete="username" required value="admin"></label>
+      <label><span>密码</span><input id="loginPassword" name="password" type="password" autocomplete="current-password" required></label>
+      <p class="form-error" id="loginError" role="alert"></p>
+      <button type="submit">登录</button>
+    </form>
+  </div>
+
+  <dialog class="project-dialog" id="projectDialog">
+    <form method="dialog" id="projectForm">
+      <header><strong>创建登记项目</strong><button class="icon-button" value="cancel" aria-label="关闭" title="关闭">×</button></header>
+      <label><span>项目名称</span><input id="projectName" maxlength="80" required placeholder="my-project"></label>
+      <fieldset><legend>存储位置</legend>
+        <label><input type="radio" name="storage" value="ssd" checked> SSD</label>
+        <label><input type="radio" name="storage" value="disk"> D 盘</label>
+      </fieldset>
+      <p class="form-error" id="projectError" role="alert"></p>
+      <footer><button value="cancel">取消</button><button class="primary" id="createProjectButton" value="default">创建</button></footer>
+    </form>
+  </dialog>
   <script src="/app.js" defer></script>
 </body>
 </html>

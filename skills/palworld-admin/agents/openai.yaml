@@ -1,0 +1,4 @@
+interface:
+  display_name: "Palworld Admin"
+  short_description: "Inspect Palworld safely through the hostctl boundary"
+  default_prompt: "Use -admin to inspect Palworld status and logs safely."

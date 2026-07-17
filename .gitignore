@@ -7,6 +7,7 @@ secrets/
 *.zip
 *.tar
 *.tar.gz
+!cloudcli/upstream-27eaf0146a46.tar.gz
 *.bak
 *.bak-*
 *.new

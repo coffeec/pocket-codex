@@ -1,0 +1,59 @@
+diff --git a/server/modules/database/repositories/sessions.db.ts b/server/modules/database/repositories/sessions.db.ts
+--- a/server/modules/database/repositories/sessions.db.ts
++++ b/server/modules/database/repositories/sessions.db.ts
+@@ -1,8 +1,9 @@
+ import { getConnection } from '@/modules/database/connection.js';
+ import { projectsDb } from '@/modules/database/repositories/projects.db.js';
+-import { POCKETCODEX_MODE } from '@/constants/config.js';
+ import { normalizeProjectPath } from '@/shared/utils.js';
+ 
++const POCKETCODEX_MODE = process.env.VITE_POCKETCODEX_MODE === 'true';
++
+ type SessionRow = {
+   session_id: string;
+   provider: string;
+diff --git a/server/modules/providers/provider.registry.ts b/server/modules/providers/provider.registry.ts
+--- a/server/modules/providers/provider.registry.ts
++++ b/server/modules/providers/provider.registry.ts
+@@ -5,8 +5,9 @@ import { OpenCodeProvider } from '@/modules/providers/list/opencode/opencode.pro
+ import type { IProvider } from '@/shared/interfaces.js';
+ import type { LLMProvider } from '@/shared/types.js';
+ import { AppError } from '@/shared/utils.js';
+-import { POCKETCODEX_MODE } from '@/constants/config.js';
+ 
++const POCKETCODEX_MODE = process.env.VITE_POCKETCODEX_MODE === 'true';
++
+ const providers: Partial<Record<LLMProvider, IProvider>> = {
+   claude: new ClaudeProvider(),
+   codex: new CodexProvider(),
+diff --git a/server/modules/providers/services/provider-capabilities.service.ts b/server/modules/providers/services/provider-capabilities.service.ts
+--- a/server/modules/providers/services/provider-capabilities.service.ts
++++ b/server/modules/providers/services/provider-capabilities.service.ts
+@@ -1,5 +1,6 @@
+ import type { LLMProvider } from '@/shared/types.js';
+-import { POCKETCODEX_MODE } from '@/constants/config.js';
+ 
++const POCKETCODEX_MODE = process.env.VITE_POCKETCODEX_MODE === 'true';
++
+ /**
+  * Static, backend-owned description of what one provider integration supports.
+diff --git a/server/modules/providers/services/sessions.service.ts b/server/modules/providers/services/sessions.service.ts
+--- a/server/modules/providers/services/sessions.service.ts
++++ b/server/modules/providers/services/sessions.service.ts
+@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
+ import fsp from 'node:fs/promises';
+ import path from 'node:path';
+ 
+-import { POCKETCODEX_MODE } from '@/constants/config.js';
+ import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+ import { chatRunRegistry } from '@/modules/websocket/index.js';
+ import { providerRegistry } from '@/modules/providers/provider.registry.js';
+@@ -12,6 +11,8 @@ import type {
+ } from '@/shared/types.js';
+ import { AppError } from '@/shared/utils.js';
+ 
++const POCKETCODEX_MODE = process.env.VITE_POCKETCODEX_MODE === 'true';
++
+ type CreateAppSessionResult = {
+   sessionId: string;
+   provider: LLMProvider;

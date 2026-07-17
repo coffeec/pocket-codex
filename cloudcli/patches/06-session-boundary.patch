@@ -1,0 +1,25 @@
+diff --git a/server/modules/providers/services/sessions.service.ts b/server/modules/providers/services/sessions.service.ts
+index 6836e87..8480db6 100644
+--- a/server/modules/providers/services/sessions.service.ts
++++ b/server/modules/providers/services/sessions.service.ts
+@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
+ import fsp from 'node:fs/promises';
+ import path from 'node:path';
+ 
++import { POCKETCODEX_MODE } from '@/constants/config.js';
+ import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+ import { chatRunRegistry } from '@/modules/websocket/index.js';
+ import { providerRegistry } from '@/modules/providers/provider.registry.js';
+@@ -128,6 +129,12 @@ export const sessionsService = {
+         statusCode: 400,
+       });
+     }
++    if (POCKETCODEX_MODE && !projectsDb.isActiveProjectPath(normalizedProjectPath)) {
++      throw new AppError('Project is not registered or is archived.', {
++        code: 'PROJECT_NOT_REGISTERED',
++        statusCode: 400,
++      });
++    }
+ 
+     const sessionId = randomUUID();
+     sessionsDb.createAppSession(sessionId, provider, normalizedProjectPath);

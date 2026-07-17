@@ -11,6 +11,15 @@ const elements = {
   conversationTitle: document.querySelector('#conversationTitle'),
   providerLabel: document.querySelector('#providerLabel'),
   modelLabel: document.querySelector('#modelLabel'),
+  mainPanel: document.querySelector('#mainPanel'),
+  modeSwitch: document.querySelector('#modeSwitch'),
+  modelControl: document.querySelector('#modelControl'),
+  modelSelect: document.querySelector('#modelSelect'),
+  effortControl: document.querySelector('#effortControl'),
+  effortSelect: document.querySelector('#effortSelect'),
+  projectControl: document.querySelector('#projectControl'),
+  projectSelect: document.querySelector('#projectSelect'),
+  addProjectButton: document.querySelector('#addProjectButton'),
   densityToggle: document.querySelector('#densityToggle'),
   sidebarIndicator: document.querySelector('#sidebarIndicator'),
   sidebarStatus: document.querySelector('#sidebarStatus'),
@@ -31,18 +40,36 @@ const elements = {
   quickActions: document.querySelector('#quickActions'),
   messageList: document.querySelector('#messageList'),
   composer: document.querySelector('#composer'),
+  attachButton: document.querySelector('#attachButton'),
+  fileInput: document.querySelector('#fileInput'),
+  attachmentTray: document.querySelector('#attachmentTray'),
   promptInput: document.querySelector('#promptInput'),
   sendButton: document.querySelector('#sendButton'),
   stopButton: document.querySelector('#stopButton'),
   runState: document.querySelector('#runState'),
   characterCount: document.querySelector('#characterCount'),
   toast: document.querySelector('#toast'),
+  loginScreen: document.querySelector('#loginScreen'),
+  loginForm: document.querySelector('#loginForm'),
+  loginUsername: document.querySelector('#loginUsername'),
+  loginPassword: document.querySelector('#loginPassword'),
+  loginError: document.querySelector('#loginError'),
+  projectDialog: document.querySelector('#projectDialog'),
+  projectForm: document.querySelector('#projectForm'),
+  projectName: document.querySelector('#projectName'),
+  projectError: document.querySelector('#projectError'),
+  createProjectButton: document.querySelector('#createProjectButton'),
 };
 
 const state = {
   conversations: [],
   conversation: null,
   model: null,
+  models: [],
+  projects: [],
+  mode: 'gpt',
+  stagedAttachments: [],
+  capabilities: { imageInput: null },
   running: false,
   liveText: '',
   liveDetails: [],
@@ -50,10 +77,17 @@ const state = {
   statusTimer: null,
 };
 
+const requestedMode = (() => {
+  const value = new URLSearchParams(window.location.search).get('mode');
+  return ['gpt', 'server'].includes(value) ? value : null;
+})();
+
 async function api(path, options = {}) {
-  const response = await fetch(path, {
+  const rawBody = options.body instanceof Blob || options.body instanceof ArrayBuffer;
+  const requestPath = path.startsWith('/api/') ? `/pocket-api${path.slice(4)}` : path;
+  const response = await fetch(requestPath, {
     ...options,
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: { ...(rawBody ? {} : { 'Content-Type': 'application/json' }), ...options.headers },
   });
   if (!response.ok) {
     let message = `请求失败 (${response.status})`;
@@ -63,9 +97,24 @@ async function api(path, options = {}) {
     } catch {
       // Keep the HTTP fallback message.
     }
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    if (response.status === 401 && path !== '/api/login') showLogin();
+    throw error;
   }
   return response;
+}
+
+function showLogin(message = '') {
+  elements.loginScreen.hidden = false;
+  elements.loginError.textContent = message;
+  requestAnimationFrame(() => elements.loginPassword.focus());
+}
+
+function hideLogin() {
+  elements.loginScreen.hidden = true;
+  elements.loginError.textContent = '';
+  elements.loginPassword.value = '';
 }
 
 function showToast(message) {
@@ -108,6 +157,9 @@ function summarizeConversation(conversation) {
     id: conversation.id,
     title: conversation.title,
     threadId: conversation.threadId,
+    mode: conversation.mode || 'gpt',
+    model: conversation.model || null,
+    projectId: conversation.projectId || null,
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
     messageCount: conversation.messages?.length || 0,
@@ -126,6 +178,75 @@ function syncConversationSummary() {
   elements.conversationTitle.textContent = state.conversation.title;
 }
 
+function modeLabel(mode) {
+  return mode === 'agent' ? 'Agent' : mode === 'server' ? '服务器' : 'GPT';
+}
+
+function syncModeControls() {
+  const conversation = state.conversation;
+  state.mode = conversation?.mode || state.mode || 'gpt';
+  elements.mainPanel.dataset.mode = state.mode;
+  for (const button of elements.modeSwitch.querySelectorAll('[data-mode]')) {
+    const selected = button.dataset.mode === state.mode;
+    button.setAttribute('aria-selected', String(selected));
+    button.classList.toggle('is-active', selected);
+  }
+  const isAgent = state.mode === 'agent';
+  elements.modelControl.hidden = state.mode !== 'gpt';
+  elements.effortControl.hidden = state.mode !== 'gpt';
+  elements.projectControl.hidden = !isAgent;
+  elements.addProjectButton.hidden = !isAgent;
+  if (conversation?.model) elements.modelSelect.value = conversation.model;
+  elements.effortSelect.value = conversation?.reasoningEffort || 'high';
+  if (conversation?.projectId) elements.projectSelect.value = conversation.projectId;
+  elements.promptInput.placeholder = state.mode === 'agent'
+    ? '描述要在登记项目中完成的任务'
+    : state.mode === 'server' ? '查询服务器、帕鲁或 FRP 状态' : '发送消息';
+  elements.runState.textContent = state.running ? `${modeLabel(state.mode)} 正在处理` : '就绪';
+}
+
+function renderContextOptions() {
+  elements.modelSelect.replaceChildren();
+  for (const model of state.models) {
+    const option = document.createElement('option');
+    option.value = model;
+    option.textContent = model;
+    elements.modelSelect.append(option);
+  }
+  if (state.model?.model && state.models.includes(state.model.model)) elements.modelSelect.value = state.model.model;
+  elements.projectSelect.replaceChildren();
+  const empty = document.createElement('option');
+  empty.value = '';
+  empty.textContent = state.projects.length ? '选择项目' : '尚无登记项目';
+  elements.projectSelect.append(empty);
+  for (const project of state.projects) {
+    const option = document.createElement('option');
+    option.value = project.id;
+    option.textContent = `${project.name} · ${project.storage === 'ssd' ? 'SSD' : 'D 盘'}`;
+    elements.projectSelect.append(option);
+  }
+  syncModeControls();
+}
+
+function renderAttachments() {
+  elements.attachmentTray.replaceChildren();
+  elements.attachmentTray.hidden = state.stagedAttachments.length === 0;
+  for (const item of state.stagedAttachments) {
+    const chip = document.createElement('div');
+    chip.className = 'attachment-chip';
+    const label = document.createElement('span');
+    label.textContent = `${item.name} · ${Math.max(1, Math.ceil(item.size / 1024))}KB`;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.title = '移除附件';
+    remove.setAttribute('aria-label', `移除 ${item.name}`);
+    remove.addEventListener('click', () => removeAttachment(item.id));
+    chip.append(label, remove);
+    elements.attachmentTray.append(chip);
+  }
+}
+
 function renderConversationList() {
   elements.conversationList.replaceChildren();
   for (const conversation of state.conversations) {
@@ -139,7 +260,7 @@ function renderConversationList() {
     const title = document.createElement('strong');
     title.textContent = conversation.title || '新会话';
     const meta = document.createElement('small');
-    meta.textContent = `${conversation.messageCount || 0} 条消息 · ${formatRelative(conversation.updatedAt)}`;
+    meta.textContent = `${modeLabel(conversation.mode)} · ${conversation.messageCount || 0} 条 · ${formatRelative(conversation.updatedAt)}`;
     select.append(title, meta);
     select.addEventListener('click', () => loadConversation(conversation.id));
 
@@ -301,6 +422,7 @@ function detailElement(detail) {
 
   const output = document.createElement('pre');
   output.className = 'detail-output';
+  if (detail.type === 'file_change' || detail.title?.includes('Diff')) output.classList.add('diff-output');
   output.textContent = detail.output || (detail.items ? JSON.stringify(detail.items, null, 2) : '无输出');
   wrapper.append(summary, output);
   return wrapper;
@@ -335,6 +457,17 @@ function messageElement(message, live = false) {
     details.className = 'details-list';
     for (const item of message.details) details.append(detailElement(item));
     body.append(details);
+  }
+
+  if (message.attachments?.length) {
+    const files = document.createElement('div');
+    files.className = 'message-attachments';
+    for (const item of message.attachments) {
+      const file = document.createElement('span');
+      file.textContent = item.name;
+      files.append(file);
+    }
+    body.append(files);
   }
 
   if (message.usage?.input_tokens || message.usage?.output_tokens) {
@@ -373,7 +506,9 @@ function setRunning(running, label = '') {
   elements.composer.classList.toggle('is-running', running);
   elements.promptInput.disabled = running;
   elements.sendButton.disabled = running || !elements.promptInput.value.trim();
-  elements.runState.textContent = label || (running ? 'Codex 正在处理' : '就绪');
+  elements.attachButton.disabled = running;
+  elements.modeSwitch.toggleAttribute('aria-disabled', running);
+  elements.runState.textContent = label || (running ? `${modeLabel(state.mode)} 正在处理` : '就绪');
 }
 
 function serviceUp(value) {
@@ -460,9 +595,20 @@ async function createConversation() {
     return;
   }
   try {
-    const response = await api('/api/conversations', { method: 'POST', body: '{}' });
+    const response = await api('/api/conversations', {
+      method: 'POST',
+      body: JSON.stringify({
+        mode: state.mode,
+        model: elements.modelSelect.value || state.model?.model || null,
+        reasoningEffort: elements.effortSelect.value || 'high',
+        projectId: state.mode === 'agent' ? elements.projectSelect.value || null : null,
+      }),
+    });
     state.conversation = await response.json();
+    state.stagedAttachments = [];
     syncConversationSummary();
+    syncModeControls();
+    renderAttachments();
     renderMessages(true);
     closeSidebar();
     elements.promptInput.focus();
@@ -476,12 +622,101 @@ async function loadConversation(id) {
   try {
     const response = await api(`/api/conversations/${encodeURIComponent(id)}`);
     state.conversation = await response.json();
+    state.stagedAttachments = state.conversation.stagedAttachments || [];
     syncConversationSummary();
+    syncModeControls();
+    renderAttachments();
     renderMessages(true);
     closeSidebar();
   } catch (error) {
     showToast(error.message);
   }
+}
+
+async function updateConversationSettings(settings) {
+  if (state.running) return showToast('任务运行中，不能切换上下文');
+  await ensureConversation();
+  try {
+    const response = await api(`/api/conversations/${encodeURIComponent(state.conversation.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(settings),
+    });
+    state.conversation = await response.json();
+    state.mode = state.conversation.mode || 'gpt';
+    syncConversationSummary();
+    syncModeControls();
+    renderConversationList();
+  } catch (error) {
+    showToast(error.message);
+    syncModeControls();
+  }
+}
+
+async function uploadFiles(files) {
+  if (!files?.length || state.running) return;
+  await ensureConversation();
+  for (const file of files) {
+    try {
+      const response = await api(`/api/conversations/${encodeURIComponent(state.conversation.id)}/attachments?name=${encodeURIComponent(file.name || `clipboard-${Date.now()}.png`)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file,
+      });
+      state.stagedAttachments.push(await response.json());
+      renderAttachments();
+    } catch (error) {
+      showToast(`${file.name || '附件'}：${error.message}`);
+    }
+  }
+  elements.fileInput.value = '';
+}
+
+async function removeAttachment(id) {
+  if (!state.conversation || state.running) return;
+  try {
+    await api(`/api/conversations/${encodeURIComponent(state.conversation.id)}/attachments/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    state.stagedAttachments = state.stagedAttachments.filter((item) => item.id !== id);
+    renderAttachments();
+  } catch (error) { showToast(error.message); }
+}
+
+async function createProject(event) {
+  event.preventDefault();
+  const submitter = event.submitter;
+  if (submitter?.value === 'cancel') return elements.projectDialog.close();
+  elements.projectError.textContent = '';
+  elements.createProjectButton.disabled = true;
+  try {
+    const storage = new FormData(elements.projectForm).get('storage');
+    const response = await api('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify({ name: elements.projectName.value, storage }),
+    });
+    const project = await response.json();
+    state.projects.push(project);
+    renderContextOptions();
+    elements.projectSelect.value = project.id;
+    elements.projectDialog.close();
+    elements.projectForm.reset();
+    await updateConversationSettings({ mode: 'agent', projectId: project.id });
+  } catch (error) { elements.projectError.textContent = error.message; }
+  finally { elements.createProjectButton.disabled = false; }
+}
+
+async function login(event) {
+  event.preventDefault();
+  const button = elements.loginForm.querySelector('button[type="submit"]');
+  button.disabled = true;
+  elements.loginError.textContent = '';
+  try {
+    await api('/api/login', {
+      method: 'POST',
+      body: JSON.stringify({ username: elements.loginUsername.value, password: elements.loginPassword.value }),
+    });
+    hideLogin();
+    await bootstrap();
+  } catch (error) { showLogin(error.message); }
+  finally { button.disabled = false; }
 }
 
 async function deleteConversation(id, title) {
@@ -547,9 +782,13 @@ async function consumeEvents(response) {
       } else if (event === 'answer') {
         state.liveText = payload.text || '';
         elements.runState.textContent = '正在整理回答';
+      } else if (event === 'delta') {
+        state.liveText += payload.text || '';
+        elements.runState.textContent = '正在接收流式回答';
       } else if (event === 'done') {
         terminalEvent = true;
         if (payload.message) state.conversation.messages.push(payload.message);
+        state.stagedAttachments = [];
       } else if (event === 'failure') {
         terminalEvent = true;
         if (payload.item) state.conversation.messages.push(payload.item);
@@ -573,6 +812,7 @@ async function ensureConversation() {
 async function sendMessage(text) {
   const prompt = String(text || '').trim();
   if (!prompt || state.running) return;
+  if (state.mode === 'agent' && !state.conversation?.projectId) return showToast('请先选择登记项目');
   try {
     await ensureConversation();
     state.liveText = '';
@@ -592,7 +832,7 @@ async function sendMessage(text) {
 
     const response = await api(`/api/conversations/${encodeURIComponent(state.conversation.id)}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ text: prompt }),
+      body: JSON.stringify({ text: prompt, attachmentIds: state.stagedAttachments.map((item) => item.id) }),
     });
     await consumeEvents(response);
   } catch (error) {
@@ -605,12 +845,14 @@ async function sendMessage(text) {
       try {
         const response = await api(`/api/conversations/${encodeURIComponent(state.conversation.id)}`);
         state.conversation = await response.json();
+        state.stagedAttachments = state.conversation.stagedAttachments || [];
       } catch {
         // Keep the locally rendered result when a refresh is unavailable.
       }
     }
     syncConversationSummary();
     renderMessages(true);
+    renderAttachments();
     elements.promptInput.focus();
   }
 }
@@ -632,7 +874,7 @@ function resizeComposer() {
   const input = elements.promptInput;
   input.style.height = 'auto';
   input.style.height = `${Math.min(input.scrollHeight, 154)}px`;
-  elements.characterCount.textContent = `${input.value.length} / 8000`;
+  elements.characterCount.textContent = `${input.value.length} / 16000`;
   elements.sendButton.disabled = state.running || !input.value.trim();
 }
 
@@ -642,19 +884,31 @@ async function bootstrap() {
     const payload = await response.json();
     state.conversations = payload.conversations || [];
     state.model = payload.model;
+    state.models = payload.models?.length ? payload.models : [payload.model?.model].filter(Boolean);
+    state.projects = payload.projects || [];
+    state.capabilities = payload.capabilities || { imageInput: null };
     elements.modelLabel.textContent = payload.model?.model || '模型未知';
     elements.providerLabel.textContent = payload.model?.provider || 'Provider 未知';
+    renderContextOptions();
     renderStatus(payload.status);
     renderConversationList();
 
-    if (state.conversations[0]) await loadConversation(state.conversations[0].id);
+    if (requestedMode) {
+      const matchingConversation = state.conversations.find((conversation) => conversation.mode === requestedMode);
+      state.mode = requestedMode;
+      if (matchingConversation) await loadConversation(matchingConversation.id);
+      else await createConversation();
+      window.history.replaceState({}, '', '/');
+    } else if (state.conversations[0]) await loadConversation(state.conversations[0].id);
     else await createConversation();
 
     clearInterval(state.statusTimer);
     state.statusTimer = setInterval(refreshStatus, 60_000);
+    hideLogin();
   } catch (error) {
     renderStatus(null);
-    showToast(error.message);
+    if (error.status === 401) showLogin('请登录后继续');
+    else showToast(error.message);
   }
 }
 
@@ -662,11 +916,33 @@ elements.openSidebar.addEventListener('click', () => elements.app.classList.add(
 elements.closeSidebar.addEventListener('click', closeSidebar);
 elements.sidebarScrim.addEventListener('click', closeSidebar);
 elements.newChatButton.addEventListener('click', createConversation);
+elements.modeSwitch.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-mode]');
+  if (!button || state.running || button.dataset.mode === state.mode) return;
+  if (button.dataset.mode === 'agent') {
+    window.location.assign('/agent/');
+    return;
+  }
+  state.mode = button.dataset.mode;
+  updateConversationSettings({ mode: state.mode });
+});
+elements.modelSelect.addEventListener('change', () => updateConversationSettings({ model: elements.modelSelect.value }));
+elements.effortSelect.addEventListener('change', () => updateConversationSettings({ reasoningEffort: elements.effortSelect.value }));
+elements.projectSelect.addEventListener('change', () => updateConversationSettings({ projectId: elements.projectSelect.value || null }));
+elements.addProjectButton.addEventListener('click', () => {
+  elements.projectError.textContent = '';
+  elements.projectDialog.showModal();
+  requestAnimationFrame(() => elements.projectName.focus());
+});
+elements.projectForm.addEventListener('submit', createProject);
+elements.loginForm.addEventListener('submit', login);
 elements.densityToggle.addEventListener('click', () => {
   setCompactMode(!document.documentElement.classList.contains('compact-ui'));
 });
 elements.refreshStatus.addEventListener('click', refreshStatus);
 elements.stopButton.addEventListener('click', stopRun);
+elements.attachButton.addEventListener('click', () => elements.fileInput.click());
+elements.fileInput.addEventListener('change', () => uploadFiles([...elements.fileInput.files]));
 elements.composer.addEventListener('submit', (event) => {
   event.preventDefault();
   sendMessage(elements.promptInput.value);
@@ -676,6 +952,17 @@ elements.promptInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     sendMessage(elements.promptInput.value);
+  }
+});
+elements.promptInput.addEventListener('paste', (event) => {
+  const images = [...(event.clipboardData?.items || [])]
+    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .map((item) => item.getAsFile())
+    .filter(Boolean)
+    .map((file, index) => new File([file], `clipboard-${Date.now()}-${index + 1}.${file.type.split('/')[1] || 'png'}`, { type: file.type }));
+  if (images.length) {
+    event.preventDefault();
+    uploadFiles(images);
   }
 });
 elements.quickActions.addEventListener('click', (event) => {

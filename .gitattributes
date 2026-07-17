@@ -1,2 +1,4 @@
 * text=auto eol=lf
 *.png binary
+cloudcli/*.tar.gz binary
+cloudcli/patches/*.patch -whitespace

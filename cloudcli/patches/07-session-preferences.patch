@@ -1,0 +1,545 @@
+diff --git a/server/modules/providers/index.ts b/server/modules/providers/index.ts
+index e057e200afb34dcd55d6a5cc5f216fac3722fe13..03596865d72139ab2787a2b0f203ab49171b138e 100644
+--- a/server/modules/providers/index.ts
++++ b/server/modules/providers/index.ts
+@@ -1,6 +1,11 @@
+ export { sessionSynchronizerService } from './services/session-synchronizer.service.js';
+ export { providerSkillsService } from './services/skills.service.js';
+ export { providerMcpService } from './services/mcp.service.js';
++export {
++  isPocketSessionEffort,
++  readPocketSessionPreferences,
++  writePocketSessionPreferences,
++} from './services/pocket-session-preferences.service.js';
+ 
+ export { initializeSessionsWatcher } from './services/sessions-watcher.service.js';
+ export { closeSessionsWatcher } from './services/sessions-watcher.service.js';
+diff --git a/server/modules/providers/provider.routes.ts b/server/modules/providers/provider.routes.ts
+index 2352f3a141210d9989767eca45f0b4434f603001..06213f77d2d1d74d1efafcb4b564aa6644868bef 100644
+--- a/server/modules/providers/provider.routes.ts
++++ b/server/modules/providers/provider.routes.ts
+@@ -4,9 +4,15 @@ import { providerAuthService } from '@/modules/providers/services/provider-auth.
+ import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
+ import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
+ import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
++import {
++  isPocketSessionEffort,
++  readPocketSessionPreferences,
++  writePocketSessionPreferences,
++} from '@/modules/providers/services/pocket-session-preferences.service.js';
+ import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
+ import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
+ import { sessionsService } from '@/modules/providers/services/sessions.service.js';
++import { sessionsDb } from '@/modules/database/index.js';
+ import type {
+   LLMProvider,
+   McpScope,
+@@ -19,6 +25,7 @@ import type {
+ import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
+ 
+ const router = express.Router();
++const POCKETCODEX_MODE = process.env.VITE_POCKETCODEX_MODE === 'true';
+ 
+ const readPathParam = (value: unknown, name: string): string => {
+   if (typeof value === 'string') {
+@@ -375,6 +382,29 @@ const parseChangeActiveModelPayload = (payload: unknown): ProviderChangeActiveMo
+   };
+ };
+ 
++const requirePocketSession = (provider: LLMProvider, sessionId: string): void => {
++  const session = sessionsDb.getSessionById(sessionId);
++  if (!session || session.provider !== provider) {
++    throw new AppError('Session was not found for this provider.', {
++      code: 'SESSION_NOT_FOUND',
++      statusCode: 404,
++    });
++  }
++};
++
++const parseSessionEffort = (payload: unknown): 'low' | 'medium' | 'high' | 'xhigh' => {
++  const effort = payload && typeof payload === 'object'
++    ? (payload as Record<string, unknown>).effort
++    : null;
++  if (!isPocketSessionEffort(effort)) {
++    throw new AppError('effort must be low, medium, high, or xhigh.', {
++      code: 'INVALID_REASONING_EFFORT',
++      statusCode: 400,
++    });
++  }
++  return effort;
++};
++
+ router.get(
+   '/:provider/auth/status',
+   asyncHandler(async (req: Request, res: Response) => {
+@@ -400,14 +430,41 @@ router.post(
+     const provider = parseProvider(req.params.provider);
+     const sessionId = parseSessionId(req.params.sessionId);
+     const payload = parseChangeActiveModelPayload(req.body);
++    if (POCKETCODEX_MODE) requirePocketSession(provider, sessionId);
+     const result = await providerModelsService.changeActiveModel(provider, {
+       ...payload,
+       sessionId,
+     });
++    if (POCKETCODEX_MODE && result.supported && result.changed) {
++      await writePocketSessionPreferences(provider, sessionId, { model: result.model });
++    }
+     res.json(createApiSuccessResponse(result));
+   }),
+ );
+ 
++router.get(
++  '/:provider/sessions/:sessionId/preferences',
++  asyncHandler(async (req: Request, res: Response) => {
++    const provider = parseProvider(req.params.provider);
++    const sessionId = parseSessionId(req.params.sessionId);
++    requirePocketSession(provider, sessionId);
++    const preferences = await readPocketSessionPreferences(provider, sessionId);
++    res.json(createApiSuccessResponse(preferences));
++  }),
++);
++
++router.put(
++  '/:provider/sessions/:sessionId/preferences',
++  asyncHandler(async (req: Request, res: Response) => {
++    const provider = parseProvider(req.params.provider);
++    const sessionId = parseSessionId(req.params.sessionId);
++    requirePocketSession(provider, sessionId);
++    const effort = parseSessionEffort(req.body);
++    const preferences = await writePocketSessionPreferences(provider, sessionId, { effort });
++    res.json(createApiSuccessResponse(preferences));
++  }),
++);
++
+ // ----------------- Skills routes -----------------
+ router.get(
+   '/:provider/skills',
+diff --git a/server/modules/providers/services/pocket-session-preferences.service.ts b/server/modules/providers/services/pocket-session-preferences.service.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..86f527ca6134cbacd677e6901230e2ae6c664139
+--- /dev/null
++++ b/server/modules/providers/services/pocket-session-preferences.service.ts
+@@ -0,0 +1,118 @@
++import { randomUUID } from 'node:crypto';
++import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
++import os from 'node:os';
++import path from 'node:path';
++
++import type { LLMProvider } from '@/shared/types.js';
++
++export const POCKET_SESSION_EFFORTS = ['low', 'medium', 'high', 'xhigh'] as const;
++export type PocketSessionEffort = typeof POCKET_SESSION_EFFORTS[number];
++
++export type PocketSessionPreferences = {
++  provider: LLMProvider;
++  sessionId: string;
++  model: string | null;
++  effort: PocketSessionEffort;
++  updatedAt: string | null;
++};
++
++type PocketSessionPreferencesFile = {
++  version: 1;
++  entries: Record<string, PocketSessionPreferences>;
++};
++
++const DEFAULT_EFFORT: PocketSessionEffort = 'high';
++
++const preferencesPath = (): string => (
++  process.env.POCKETCODEX_SESSION_PREFERENCES_PATH
++  || path.join(os.homedir(), '.cloudcli', 'pocket-session-preferences.json')
++);
++
++const entryKey = (provider: LLMProvider, sessionId: string): string => `${provider}:${sessionId}`;
++
++export const isPocketSessionEffort = (value: unknown): value is PocketSessionEffort => (
++  typeof value === 'string' && POCKET_SESSION_EFFORTS.includes(value as PocketSessionEffort)
++);
++
++const emptyPreferences = (provider: LLMProvider, sessionId: string): PocketSessionPreferences => ({
++  provider,
++  sessionId,
++  model: null,
++  effort: DEFAULT_EFFORT,
++  updatedAt: null,
++});
++
++const isPreference = (value: unknown): value is PocketSessionPreferences => {
++  if (!value || typeof value !== 'object') return false;
++  const record = value as Record<string, unknown>;
++  return typeof record.provider === 'string'
++    && typeof record.sessionId === 'string'
++    && (typeof record.model === 'string' || record.model === null)
++    && isPocketSessionEffort(record.effort)
++    && (typeof record.updatedAt === 'string' || record.updatedAt === null);
++};
++
++const readPreferencesFile = async (filePath: string): Promise<PocketSessionPreferencesFile> => {
++  try {
++    const parsed = JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
++    const rawEntries = parsed.version === 1 && parsed.entries && typeof parsed.entries === 'object'
++      ? parsed.entries as Record<string, unknown>
++      : {};
++    const entries: Record<string, PocketSessionPreferences> = {};
++    for (const [key, value] of Object.entries(rawEntries)) {
++      if (isPreference(value)) entries[key] = value;
++    }
++    return { version: 1, entries };
++  } catch {
++    return { version: 1, entries: {} };
++  }
++};
++
++const writePreferencesFile = async (
++  filePath: string,
++  payload: PocketSessionPreferencesFile,
++): Promise<void> => {
++  await mkdir(path.dirname(filePath), { recursive: true });
++  const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
++  await writeFile(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
++  await rename(temporaryPath, filePath);
++};
++
++export async function readPocketSessionPreferences(
++  provider: LLMProvider,
++  sessionId: string,
++  options: { filePath?: string } = {},
++): Promise<PocketSessionPreferences> {
++  const normalizedSessionId = sessionId.trim();
++  if (!normalizedSessionId) return emptyPreferences(provider, normalizedSessionId);
++  const payload = await readPreferencesFile(options.filePath ?? preferencesPath());
++  return payload.entries[entryKey(provider, normalizedSessionId)]
++    ?? emptyPreferences(provider, normalizedSessionId);
++}
++
++export async function writePocketSessionPreferences(
++  provider: LLMProvider,
++  sessionId: string,
++  input: { model?: string | null; effort?: PocketSessionEffort },
++  options: { filePath?: string } = {},
++): Promise<PocketSessionPreferences> {
++  const normalizedSessionId = sessionId.trim();
++  if (!normalizedSessionId) throw new Error('sessionId is required');
++  const filePath = options.filePath ?? preferencesPath();
++  const payload = await readPreferencesFile(filePath);
++  const previous = payload.entries[entryKey(provider, normalizedSessionId)]
++    ?? emptyPreferences(provider, normalizedSessionId);
++  const model = input.model === undefined
++    ? previous.model
++    : (typeof input.model === 'string' ? input.model.trim().slice(0, 200) || null : null);
++  const next: PocketSessionPreferences = {
++    provider,
++    sessionId: normalizedSessionId,
++    model,
++    effort: input.effort ?? previous.effort,
++    updatedAt: new Date().toISOString(),
++  };
++  payload.entries[entryKey(provider, normalizedSessionId)] = next;
++  await writePreferencesFile(filePath, payload);
++  return next;
++}
+diff --git a/server/modules/providers/tests/pocket-session-preferences.service.test.ts b/server/modules/providers/tests/pocket-session-preferences.service.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7f8103a836b77d68ca600ff7815f8cb1327a2d7b
+--- /dev/null
++++ b/server/modules/providers/tests/pocket-session-preferences.service.test.ts
+@@ -0,0 +1,30 @@
++import assert from 'node:assert/strict';
++import { mkdtemp, rm } from 'node:fs/promises';
++import os from 'node:os';
++import path from 'node:path';
++import test from 'node:test';
++
++import {
++  readPocketSessionPreferences,
++  writePocketSessionPreferences,
++} from '@/modules/providers/services/pocket-session-preferences.service.js';
++
++test('Pocket session model and effort preferences persist independently', async (t) => {
++  const directory = await mkdtemp(path.join(os.tmpdir(), 'pocket-session-preferences-'));
++  const filePath = path.join(directory, 'preferences.json');
++  t.after(() => rm(directory, { recursive: true, force: true }));
++
++  assert.deepEqual(await readPocketSessionPreferences('codex', 'session-1', { filePath }), {
++    provider: 'codex', sessionId: 'session-1', model: null, effort: 'high', updatedAt: null,
++  });
++
++  await writePocketSessionPreferences('codex', 'session-1', {
++    model: 'gpt-5.7-sol', effort: 'low',
++  }, { filePath });
++  await writePocketSessionPreferences('codex', 'session-1', { effort: 'xhigh' }, { filePath });
++
++  const restored = await readPocketSessionPreferences('codex', 'session-1', { filePath });
++  assert.equal(restored.model, 'gpt-5.7-sol');
++  assert.equal(restored.effort, 'xhigh');
++  assert.ok(restored.updatedAt);
++});
+diff --git a/server/modules/websocket/services/chat-websocket.service.ts b/server/modules/websocket/services/chat-websocket.service.ts
+index 6949d3f7351c1f94797d7bc3c559233af49b6e92..00cb09780597f3e475178276920671689a0fc884 100644
+--- a/server/modules/websocket/services/chat-websocket.service.ts
++++ b/server/modules/websocket/services/chat-websocket.service.ts
+@@ -3,6 +3,10 @@ import path from 'node:path';
+ import type { WebSocket } from 'ws';
+ 
+ import { sessionsDb } from '@/modules/database/index.js';
++import {
++  isPocketSessionEffort,
++  writePocketSessionPreferences,
++} from '@/modules/providers/index.js';
+ import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
+ import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
+ import { getGlobalImageAssetsDir, normalizeImageDescriptors } from '@/shared/image-attachments.js';
+@@ -11,8 +15,9 @@ import type {
+   AuthenticatedWebSocketRequest,
+   LLMProvider,
+ } from '@/shared/types.js';
+-import { parseIncomingJsonObject } from '@/shared/utils.js';
+-import { POCKETCODEX_MODE } from '@/constants/config.js';
++import { parseIncomingJsonObject, writeProviderSessionActiveModelChange } from '@/shared/utils.js';
++
++const POCKETCODEX_MODE = process.env.VITE_POCKETCODEX_MODE === 'true';
+ 
+ /**
+  * Trust boundary for client-supplied image attachments: chat.send options come
+@@ -174,6 +179,28 @@ async function handleChatSend(
+     return;
+   }
+ 
++  const clientOptions = (data.options ?? {}) as AnyRecord;
++  if (POCKETCODEX_MODE) {
++    const model = typeof clientOptions.model === 'string' ? clientOptions.model.trim() : '';
++    const effort = clientOptions.effort ?? 'high';
++    if (!isPocketSessionEffort(effort)) {
++      sendProtocolError(ws, 'INVALID_REASONING_EFFORT', 'Reasoning effort must be low, medium, high, or xhigh.', sessionId);
++      return;
++    }
++    try {
++      await writePocketSessionPreferences(provider, sessionId, {
++        ...(model ? { model } : {}),
++        effort,
++      });
++      if (model) {
++        await writeProviderSessionActiveModelChange(provider, { sessionId, model });
++      }
++    } catch {
++      sendProtocolError(ws, 'SESSION_PREFERENCES_WRITE_FAILED', 'Unable to persist session model and effort.', sessionId);
++      return;
++    }
++  }
++
+   const run = chatRunRegistry.startRun({
+     appSessionId: sessionId,
+     provider,
+@@ -192,7 +219,6 @@ async function handleChatSend(
+     return;
+   }
+ 
+-  const clientOptions = (data.options ?? {}) as AnyRecord;
+   const command = typeof data.content === 'string' ? data.content : '';
+ 
+   // The provider runtimes receive the provider-native session id (that is the
+diff --git a/src/components/chat/hooks/useChatProviderState.ts b/src/components/chat/hooks/useChatProviderState.ts
+index 49ba43808a07e7a74db01dc7de5276368c2e7ae4..d0856d687eca1f029e07eb05081f55c392b4a9db 100644
+--- a/src/components/chat/hooks/useChatProviderState.ts
++++ b/src/components/chat/hooks/useChatProviderState.ts
+@@ -87,6 +87,16 @@ type ChangeActiveModelApiResponse = {
+   };
+ };
+ 
++type SessionPreferencesApiResponse = {
++  success?: boolean;
++  data?: {
++    provider?: LLMProvider;
++    sessionId?: string;
++    model?: string | null;
++    effort?: string;
++  };
++};
++
+ export function useChatProviderState({ selectedSession, selectedProject: _selectedProject }: UseChatProviderStateArgs) {
+   const [permissionMode, setPermissionMode] = useState<PermissionMode>('acceptEdits');
+   const [pendingPermissionRequests, setPendingPermissionRequests] = useState<PendingPermissionRequest[]>([]);
+@@ -132,35 +142,48 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
+ 
+   const providerModelsRequestIdRef = useRef(0);
+ 
++  const setProviderModelState = useCallback((targetProvider: LLMProvider, model: string) => {
++    if (targetProvider === 'claude') setClaudeModel(model);
++    else if (targetProvider === 'cursor') setCursorModel(model);
++    else if (targetProvider === 'codex') setCodexModel(model);
++    else setOpenCodeModel(model);
++  }, []);
++
+   const setStoredProviderModel = useCallback((targetProvider: LLMProvider, model: string) => {
++    setProviderModelState(targetProvider, model);
+     if (targetProvider === 'claude') {
+-      setClaudeModel(model);
+       localStorage.setItem('claude-model', model);
+       return;
+     }
+ 
+     if (targetProvider === 'cursor') {
+-      setCursorModel(model);
+       localStorage.setItem('cursor-model', model);
+       return;
+     }
+ 
+     if (targetProvider === 'codex') {
+-      setCodexModel(model);
+       localStorage.setItem('codex-model', model);
+       return;
+     }
+ 
+-    setOpenCodeModel(model);
+     localStorage.setItem('opencode-model', model);
+-  }, []);
++  }, [setProviderModelState]);
+ 
+-  const setStoredProviderEffort = useCallback((targetProvider: LLMProvider, effort: string) => {
++  const setStoredProviderEffort = useCallback((targetProvider: LLMProvider, effort: string, sessionId?: string | null) => {
+     setProviderEfforts((previous) => (
+       previous[targetProvider] === effort
+         ? previous
+         : { ...previous, [targetProvider]: effort }
+     ));
++    if (sessionId) {
++      void authenticatedFetch(`/api/providers/${targetProvider}/sessions/${encodeURIComponent(sessionId)}/preferences`, {
++        method: 'PUT',
++        body: JSON.stringify({ effort }),
++      }).then((response) => {
++        if (!response.ok) throw new Error('Unable to persist session effort.');
++      }).catch((error) => console.error('Error saving session effort:', error));
++      return;
++    }
+     localStorage.setItem(`${targetProvider}-effort`, effort);
+   }, []);
+ 
+@@ -455,6 +478,26 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
+     localStorage.setItem('selected-provider', selectedSession.__provider);
+   }, [provider, selectedSession]);
+ 
++  useEffect(() => {
++    const sessionId = selectedSession?.id;
++    if (!sessionId) return;
++    const targetProvider = selectedSession.__provider || provider;
++    let cancelled = false;
++    authenticatedFetch(`/api/providers/${targetProvider}/sessions/${encodeURIComponent(sessionId)}/preferences`)
++      .then((response) => response.json())
++      .then((body: SessionPreferencesApiResponse) => {
++        if (cancelled || !body.success || !body.data) return;
++        const restoredModel = body.data.model
++          || providerModelCatalog[targetProvider]?.DEFAULT
++          || FALLBACK_DEFAULT_MODEL[targetProvider];
++        setProviderModelState(targetProvider, restoredModel);
++        const effort = body.data.effort || 'high';
++        setProviderEfforts((previous) => ({ ...previous, [targetProvider]: effort }));
++      })
++      .catch((error) => console.error('Error loading session preferences:', error));
++    return () => { cancelled = true; };
++  }, [provider, providerModelCatalog, selectedSession?.__provider, selectedSession?.id, setProviderModelState]);
++
+   // Permission prompts belong to a session, not to the transient provider
+   // selection that is synchronized after navigation.
+   useEffect(() => {
+@@ -540,12 +583,14 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
+       throw new Error('Unable to change the active model for this session.');
+     }
+ 
++    setProviderModelState(targetProvider, body.data.model || model);
++
+     return {
+       scope: 'session' as const,
+       changed: body.data.changed === true,
+       model: body.data.model || model,
+     };
+-  }, [setStoredProviderModel]);
++  }, [setProviderModelState, setStoredProviderModel]);
+ 
+   const currentProviderEffortOptions = useMemo(() => {
+     return getEffortOptionsForModel(provider, providerModels[provider]);
+diff --git a/src/components/chat/view/ChatInterface.tsx b/src/components/chat/view/ChatInterface.tsx
+index 2d7a8dcbb74506269c85eb808923dfc094d49e75..76bd79d3475df0b21a611ae47bb84f016e1028e4 100644
+--- a/src/components/chat/view/ChatInterface.tsx
++++ b/src/components/chat/view/ChatInterface.tsx
+@@ -392,7 +392,11 @@ function ChatInterface({
+           onModeSwitch={cyclePermissionMode}
+           effort={currentProviderEffort}
+           availableEffortOptions={currentProviderEffortOptions}
+-          onSelectEffort={(nextEffort) => setStoredProviderEffort(provider, nextEffort)}
++          onSelectEffort={(nextEffort) => setStoredProviderEffort(
++            provider,
++            nextEffort,
++            currentSessionId || selectedSession?.id || null,
++          )}
+           tokenBudget={tokenBudget}
+           onShowTokenUsage={showCostModal}
+           slashCommandsCount={slashCommandsCount}
+diff --git a/src/components/chat/view/subcomponents/MessageComponent.tsx b/src/components/chat/view/subcomponents/MessageComponent.tsx
+index 61cf8ee37b508f5e4b5bfb5b865dd1ba626f958d..86ef765fa4f90c8f998f9768faead171ce4f8ce7 100644
+--- a/src/components/chat/view/subcomponents/MessageComponent.tsx
++++ b/src/components/chat/view/subcomponents/MessageComponent.tsx
+@@ -82,7 +82,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
+     <div
+       ref={messageRef}
+       data-message-timestamp={message.timestamp || undefined}
+-      className={`chat-message ${message.type} ${isGrouped ? 'grouped' : ''} ${message.type === 'user' ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
++      className={`chat-message chat-message-${message.type} ${isGrouped ? 'grouped' : ''} ${message.type === 'user' ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
+     >
+       {message.type === 'user' ? (
+         /* User turn on the right: claude.ai-style attachment cards above the bubble */
+diff --git a/src/components/chat/view/subcomponents/ToolGroupContainer.tsx b/src/components/chat/view/subcomponents/ToolGroupContainer.tsx
+index 79e1a02dff373d8deec4d93dd84258a34bed653b..bcc8ec27cbd01e473d90f889b9f1bf0fe4e0eb0f 100644
+--- a/src/components/chat/view/subcomponents/ToolGroupContainer.tsx
++++ b/src/components/chat/view/subcomponents/ToolGroupContainer.tsx
+@@ -94,7 +94,7 @@ export default function ToolGroupContainer({
+   }, [group.messages]);
+ 
+   return (
+-    <div className="chat-message tool px-3 sm:px-0" data-message-timestamp={group.timestamp || undefined}>
++    <div className="chat-message chat-message-tool px-3 sm:px-0" data-message-timestamp={group.timestamp || undefined}>
+       <button
+         type="button"
+         className={`group flex w-full items-center gap-2 border-l-2 ${borderClass} rounded-r-md bg-muted/25 px-3 py-2 text-left transition-colors hover:bg-muted/40 dark:bg-muted/10 dark:hover:bg-muted/20`}
+diff --git a/src/index.css b/src/index.css
+index 683c4810fd4ef6a4f2bef3602cb1996ab876f8ba..9d7276d7f1e83b0f91b39861d6020f5144d11e04 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -594,13 +594,13 @@
+     contain-intrinsic-size: auto 180px;
+   }
+ 
+-  .chat-message.assistant {
++  .chat-message.chat-message-assistant {
+     contain-intrinsic-size: auto 240px;
+   }
+ 
+-  .chat-message.user,
+-  .chat-message.tool,
+-  .chat-message.error {
++  .chat-message.chat-message-user,
++  .chat-message.chat-message-tool,
++  .chat-message.chat-message-error {
+     contain-intrinsic-size: auto 96px;
+   }
+ 
+@@ -640,16 +640,16 @@
+     }
+     
+     /* Chat message improvements */
+-    .chat-message.user {
++    .chat-message.chat-message-user {
+       @apply justify-end;
+     }
+     
+-    .chat-message.user > div {
++    .chat-message.chat-message-user > div {
+       @apply max-w-[85%];
+     }
+     
+-    .chat-message.assistant > div,
+-    .chat-message.error > div {
++    .chat-message.chat-message-assistant > div,
++    .chat-message.chat-message-error > div {
+       @apply w-full sm:max-w-[95%];
+     }
+     

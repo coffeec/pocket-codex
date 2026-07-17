@@ -1,0 +1,13 @@
+diff --git a/src/components/sidebar/view/subcomponents/SidebarProjectItem.tsx b/src/components/sidebar/view/subcomponents/SidebarProjectItem.tsx
+index 4382240cc38682fa4aade1637b2e420d8f61fa2b..78fa4cb27c9f86431f73f4f2e0079d9328b8020b 100644
+--- a/src/components/sidebar/view/subcomponents/SidebarProjectItem.tsx
++++ b/src/components/sidebar/view/subcomponents/SidebarProjectItem.tsx
+@@ -132,7 +132,7 @@ export default function SidebarProjectItem({
+                 !isSelected &&
+                 'bg-yellow-50/50 dark:bg-yellow-900/5 border-yellow-200/30 dark:border-yellow-800/30',
+             )}
+-            onClick={toggleProject}
++            onClick={selectAndToggleProject}
+           >
+             <div className="flex items-center justify-between">
+               <div className="flex min-w-0 flex-1 items-center gap-3">

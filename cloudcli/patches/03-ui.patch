@@ -1,0 +1,431 @@
+diff --git a/src/components/main-content/view/subcomponents/MainContentStateView.tsx b/src/components/main-content/view/subcomponents/MainContentStateView.tsx
+index 346089b..1e8f7ed 100644
+--- a/src/components/main-content/view/subcomponents/MainContentStateView.tsx
++++ b/src/components/main-content/view/subcomponents/MainContentStateView.tsx
+@@ -2,6 +2,7 @@ import { Folder } from 'lucide-react';
+ import { useTranslation } from 'react-i18next';
+ import type { MainContentStateViewProps } from '../../types/types';
+ import MobileMenuButton from './MobileMenuButton';
++import { POCKETCODEX_MODE } from '../../../../constants/config';
+ 
+ export default function MainContentStateView({ mode, isMobile, onMenuClick }: MainContentStateViewProps) {
+   const { t } = useTranslation();
+@@ -39,11 +40,15 @@ export default function MainContentStateView({ mode, isMobile, onMenuClick }: Ma
+             <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/50">
+               <Folder className="h-7 w-7 text-muted-foreground" />
+             </div>
+-            <h2 className="mb-2 text-xl font-semibold text-foreground">{t('mainContent.chooseProject')}</h2>
+-            <p className="mb-5 text-sm leading-relaxed text-muted-foreground">{t('mainContent.selectProjectDescription')}</p>
++            <h2 className="mb-2 text-xl font-semibold text-foreground">{POCKETCODEX_MODE ? 'Choose a project' : t('mainContent.chooseProject')}</h2>
++            <p className="mb-5 text-sm leading-relaxed text-muted-foreground">
++              {POCKETCODEX_MODE ? 'Select a registered workspace to use Codex, files, Git, and terminal tools.' : t('mainContent.selectProjectDescription')}
++            </p>
+             <div className="rounded-xl border border-primary/10 bg-primary/5 p-3.5">
+               <p className="text-sm text-primary">
+-                <strong>{t('mainContent.tip')}:</strong> {isMobile ? t('mainContent.createProjectMobile') : t('mainContent.createProjectDesktop')}
++                <strong>{t('mainContent.tip')}:</strong> {POCKETCODEX_MODE
++                  ? (isMobile ? 'Open the project drawer to create an SSD or D drive workspace.' : 'Create an SSD or D drive workspace from the sidebar.')
++                  : (isMobile ? t('mainContent.createProjectMobile') : t('mainContent.createProjectDesktop'))}
+               </p>
+             </div>
+           </div>
+diff --git a/src/components/project-creation-wizard/ProjectCreationWizard.tsx b/src/components/project-creation-wizard/ProjectCreationWizard.tsx
+index 022b5ba..8f01058 100644
+--- a/src/components/project-creation-wizard/ProjectCreationWizard.tsx
++++ b/src/components/project-creation-wizard/ProjectCreationWizard.tsx
+@@ -10,6 +10,7 @@ import { useGithubTokens } from './hooks/useGithubTokens';
+ import { cloneWorkspaceWithProgress, createProjectRequest } from './data/workspaceApi';
+ import { isCloneWorkflow, shouldShowGithubAuthentication } from './utils/pathUtils';
+ import type { TokenMode, WizardFormState, WizardStep } from './types';
++import { POCKETCODEX_MODE } from '../../constants/config';
+ 
+ type ProjectCreationWizardProps = {
+   onClose: () => void;
+@@ -17,7 +18,7 @@ type ProjectCreationWizardProps = {
+ };
+ 
+ const initialFormState: WizardFormState = {
+-  workspacePath: '',
++  workspacePath: POCKETCODEX_MODE ? '/workspaces/ssd/' : '',
+   githubUrl: '',
+   tokenMode: 'stored',
+   selectedGithubToken: '',
+@@ -131,19 +132,19 @@ export default function ProjectCreationWizard({
+ 
+   return (
+     <div className="fixed bottom-0 left-0 right-0 top-0 z-[60] flex items-center justify-center bg-black/50 p-0 backdrop-blur-sm sm:p-4">
+-      <div className="h-full w-full overflow-y-auto rounded-none border-0 border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800 sm:h-auto sm:max-w-2xl sm:rounded-lg sm:border">
+-        <div className="flex items-center justify-between border-b border-gray-200 p-6 dark:border-gray-700">
++      <div className="h-full w-full overflow-y-auto rounded-none border-0 border-border bg-card shadow-xl sm:h-auto sm:max-w-2xl sm:rounded-lg sm:border">
++        <div className="flex items-center justify-between border-b border-border p-6">
+           <div className="flex items-center gap-3">
+-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/50">
+-              <FolderPlus className="h-4 w-4 text-blue-600 dark:text-blue-400" />
++            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15">
++              <FolderPlus className="h-4 w-4 text-primary" />
+             </div>
+-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
++            <h3 className="text-lg font-semibold text-foreground">
+               {t('projectWizard.title')}
+             </h3>
+           </div>
+           <button
+             onClick={onClose}
+-            className="rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
++            className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+             disabled={isCreating}
+           >
+             <X className="h-5 w-5" />
+diff --git a/src/components/project-creation-wizard/components/StepReview.tsx b/src/components/project-creation-wizard/components/StepReview.tsx
+index 526dabf..d91a0af 100644
+--- a/src/components/project-creation-wizard/components/StepReview.tsx
++++ b/src/components/project-creation-wizard/components/StepReview.tsx
+@@ -71,18 +71,18 @@ export default function StepReview({
+         </div>
+       </div>
+ 
+-      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-900/20">
++      <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+         {isCreating && cloneProgress ? (
+           <div className="space-y-2">
+-            <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
++            <p className="text-sm font-medium text-primary">
+               {t('projectWizard.step3.cloningRepository', { defaultValue: 'Cloning repository...' })}
+             </p>
+-            <code className="block whitespace-pre-wrap break-all font-mono text-xs text-blue-700 dark:text-blue-300">
++            <code className="block whitespace-pre-wrap break-all font-mono text-xs text-primary">
+               {cloneProgress}
+             </code>
+           </div>
+         ) : (
+-          <p className="text-sm text-blue-800 dark:text-blue-200">
++          <p className="text-sm text-primary">
+             {formState.githubUrl
+               ? t('projectWizard.step3.newWithClone')
+               : t('projectWizard.step3.newEmpty')}
+diff --git a/src/components/project-creation-wizard/components/WizardFooter.tsx b/src/components/project-creation-wizard/components/WizardFooter.tsx
+index 78cf2fe..6a333c1 100644
+--- a/src/components/project-creation-wizard/components/WizardFooter.tsx
++++ b/src/components/project-creation-wizard/components/WizardFooter.tsx
+@@ -25,7 +25,7 @@ export default function WizardFooter({
+   const { t } = useTranslation();
+ 
+   return (
+-    <div className="flex items-center justify-between border-t border-gray-200 p-6 dark:border-gray-700">
++    <div className="flex items-center justify-between border-t border-border p-6">
+       <Button variant="outline" onClick={step === 1 ? onClose : onBack} disabled={isCreating}>
+         {step === 1 ? (
+           t('projectWizard.buttons.cancel')
+diff --git a/src/components/project-creation-wizard/components/WizardProgress.tsx b/src/components/project-creation-wizard/components/WizardProgress.tsx
+index 87695b7..51f6e4d 100644
+--- a/src/components/project-creation-wizard/components/WizardProgress.tsx
++++ b/src/components/project-creation-wizard/components/WizardProgress.tsx
+@@ -20,15 +20,15 @@ export default function WizardProgress({ step }: WizardProgressProps) {
+               <div
+                 className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium ${
+                   currentStep < step
+-                    ? 'bg-green-500 text-white'
++                    ? 'bg-primary text-primary-foreground'
+                     : currentStep === step
+-                      ? 'bg-blue-500 text-white'
+-                      : 'bg-gray-200 text-gray-500 dark:bg-gray-700'
++                      ? 'bg-primary text-primary-foreground'
++                      : 'bg-muted text-muted-foreground'
+                 }`}
+               >
+                 {currentStep < step ? <Check className="h-4 w-4" /> : currentStep}
+               </div>
+-              <span className="hidden text-sm font-medium text-gray-700 dark:text-gray-300 sm:inline">
++              <span className="hidden text-sm font-medium text-muted-foreground sm:inline">
+                 {currentStep === 1
+                   ? t('projectWizard.steps.configure')
+                   : t('projectWizard.steps.confirm')}
+@@ -38,7 +38,7 @@ export default function WizardProgress({ step }: WizardProgressProps) {
+             {currentStep < 2 && (
+               <div
+                 className={`mx-2 h-1 flex-1 rounded ${
+-                  currentStep < step ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'
++                  currentStep < step ? 'bg-primary' : 'bg-muted'
+                 }`}
+               />
+             )}
+diff --git a/src/components/project-creation-wizard/components/WorkspacePathField.tsx b/src/components/project-creation-wizard/components/WorkspacePathField.tsx
+index 1d7c286..553365f 100644
+--- a/src/components/project-creation-wizard/components/WorkspacePathField.tsx
++++ b/src/components/project-creation-wizard/components/WorkspacePathField.tsx
+@@ -5,6 +5,7 @@ import { browseFilesystemFolders } from '../data/workspaceApi';
+ import { getSuggestionRootPath } from '../utils/pathUtils';
+ import type { FolderSuggestion } from '../types';
+ import FolderBrowserModal from './FolderBrowserModal';
++import { POCKETCODEX_MODE } from '../../../constants/config';
+ 
+ type WorkspacePathFieldProps = {
+   value: string;
+@@ -23,6 +24,14 @@ export default function WorkspacePathField({
+   const [showPathDropdown, setShowPathDropdown] = useState(false);
+   const [showFolderBrowser, setShowFolderBrowser] = useState(false);
+ 
++  const selectStorageRoot = useCallback((root: '/workspaces/ssd' | '/workspaces/disk') => {
++    const trimmed = value.trim();
++    const suffix = trimmed
++      .replace(/^\/workspaces\/(?:ssd|disk)\/?/, '')
++      .replace(/^\/+/, '');
++    onChange(`${root}/${suffix}`);
++  }, [onChange, value]);
++
+   useEffect(() => {
+     if (value.trim().length <= 2) {
+       setPathSuggestions([]);
+@@ -80,13 +89,31 @@ export default function WorkspacePathField({
+ 
+   return (
+     <>
++      {POCKETCODEX_MODE && (
++        <div className="mb-2 flex rounded-md border border-border bg-muted/30 p-0.5" role="group" aria-label="Project storage">
++          <button
++            type="button"
++            onClick={() => selectStorageRoot('/workspaces/ssd')}
++            className={`flex-1 rounded px-3 py-1.5 text-xs font-medium ${value.startsWith('/workspaces/ssd') ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
++          >
++            SSD
++          </button>
++          <button
++            type="button"
++            onClick={() => selectStorageRoot('/workspaces/disk')}
++            className={`flex-1 rounded px-3 py-1.5 text-xs font-medium ${value.startsWith('/workspaces/disk') ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
++          >
++            D drive
++          </button>
++        </div>
++      )}
+       <div className="relative flex gap-2">
+         <div className="relative flex-1">
+           <Input
+             type="text"
+             value={value}
+             onChange={(event) => onChange(event.target.value)}
+-            placeholder="/path/to/project/workspace"
++            placeholder={POCKETCODEX_MODE ? '/workspaces/ssd/project-name' : '/path/to/project/workspace'}
+             className="w-full"
+             disabled={disabled}
+           />
+diff --git a/src/components/sidebar/view/subcomponents/SidebarCollapsed.tsx b/src/components/sidebar/view/subcomponents/SidebarCollapsed.tsx
+index c4ae430..b49c30c 100644
+--- a/src/components/sidebar/view/subcomponents/SidebarCollapsed.tsx
++++ b/src/components/sidebar/view/subcomponents/SidebarCollapsed.tsx
+@@ -1,5 +1,6 @@
+ import { Settings, Sparkles, PanelLeftOpen, Bug, AlertTriangle } from 'lucide-react';
+ import type { TFunction } from 'i18next';
++import { POCKETCODEX_MODE } from '../../../../constants/config';
+ 
+ const DISCORD_INVITE_URL = 'https://discord.gg/buxwujPNRE';
+ const GITHUB_ISSUES_URL = 'https://github.com/siteboon/claudecodeui/issues/new';
+@@ -54,7 +55,7 @@ export default function SidebarCollapsed({
+       </button>
+ 
+       {/* Report Issue */}
+-      <a
++      {!POCKETCODEX_MODE && <a
+         href={GITHUB_ISSUES_URL}
+         target="_blank"
+         rel="noopener noreferrer"
+@@ -63,10 +64,10 @@ export default function SidebarCollapsed({
+         title={t('actions.reportIssue')}
+       >
+         <Bug className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+-      </a>
++      </a>}
+ 
+       {/* Discord */}
+-      <a
++      {!POCKETCODEX_MODE && <a
+         href={DISCORD_INVITE_URL}
+         target="_blank"
+         rel="noopener noreferrer"
+@@ -75,10 +76,10 @@ export default function SidebarCollapsed({
+         title={t('actions.joinCommunity')}
+       >
+         <DiscordIcon className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+-      </a>
++      </a>}
+ 
+       {/* Restart-required indicator */}
+-      {restartRequired && (
++      {!POCKETCODEX_MODE && restartRequired && (
+         <div
+           className="relative flex h-8 w-8 items-center justify-center rounded-lg"
+           aria-label={t('version.restartRequired')}
+@@ -90,7 +91,7 @@ export default function SidebarCollapsed({
+       )}
+ 
+       {/* Update indicator */}
+-      {updateAvailable && (
++      {!POCKETCODEX_MODE && updateAvailable && (
+         <button
+           onClick={onShowVersionModal}
+           className="relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-accent/80"
+diff --git a/src/components/sidebar/view/subcomponents/SidebarFooter.tsx b/src/components/sidebar/view/subcomponents/SidebarFooter.tsx
+index f63c3e2..c938f58 100644
+--- a/src/components/sidebar/view/subcomponents/SidebarFooter.tsx
++++ b/src/components/sidebar/view/subcomponents/SidebarFooter.tsx
+@@ -1,6 +1,6 @@
+ import { Settings, ArrowUpCircle, Bug, AlertTriangle } from 'lucide-react';
+ import type { TFunction } from 'i18next';
+-import { IS_PLATFORM } from '../../../../constants/config';
++import { IS_PLATFORM, POCKETCODEX_MODE } from '../../../../constants/config';
+ import type { ReleaseInfo } from '../../../../types/sharedTypes';
+ 
+ const GITHUB_ISSUES_URL = 'https://github.com/siteboon/claudecodeui/issues/new';
+@@ -41,7 +41,7 @@ export default function SidebarFooter({
+     <div className="flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
+       {/* Restart-required banner: the running server version differs from the
+           installed/frontend version (updated but not restarted). */}
+-      {restartRequired && (
++      {!POCKETCODEX_MODE && restartRequired && (
+         <>
+           <div className="nav-divider" />
+           <div className="px-2 py-1.5 md:px-2 md:py-1.5">
+@@ -56,7 +56,7 @@ export default function SidebarFooter({
+       )}
+ 
+       {/* Update banner */}
+-      {updateAvailable && (
++      {!POCKETCODEX_MODE && updateAvailable && (
+         <>
+           <div className="nav-divider" />
+           {/* Desktop update */}
+@@ -107,7 +107,7 @@ export default function SidebarFooter({
+       <div className="nav-divider" />
+ 
+       {/* Desktop Report Issue */}
+-      <div className="hidden px-2 pt-1.5 md:block">
++      {!POCKETCODEX_MODE && <div className="hidden px-2 pt-1.5 md:block">
+         <a
+           href={GITHUB_ISSUES_URL}
+           target="_blank"
+@@ -117,10 +117,10 @@ export default function SidebarFooter({
+           <Bug className="h-3.5 w-3.5" />
+           <span className="text-sm">{t('actions.reportIssue')}</span>
+         </a>
+-      </div>
++      </div>}
+ 
+       {/* Desktop Discord */}
+-      <div className="hidden px-2 md:block">
++      {!POCKETCODEX_MODE && <div className="hidden px-2 md:block">
+         <a
+           href={DISCORD_INVITE_URL}
+           target="_blank"
+@@ -130,7 +130,7 @@ export default function SidebarFooter({
+           <DiscordIcon className="h-3.5 w-3.5" />
+           <span className="text-sm">{t('actions.joinCommunity')}</span>
+         </a>
+-      </div>
++      </div>}
+ 
+       {/* Desktop settings */}
+       <div className="hidden px-2 py-1.5 md:block">
+@@ -158,7 +158,7 @@ export default function SidebarFooter({
+       )}
+ 
+       {/* Mobile Report Issue */}
+-      <div className="px-3 pt-3 md:hidden">
++      {!POCKETCODEX_MODE && <div className="px-3 pt-3 md:hidden">
+         <a
+           href={GITHUB_ISSUES_URL}
+           target="_blank"
+@@ -170,10 +170,10 @@ export default function SidebarFooter({
+           </div>
+           <span className="text-sm font-normal text-foreground">{t('actions.reportIssue')}</span>
+         </a>
+-      </div>
++      </div>}
+ 
+       {/* Mobile Discord */}
+-      <div className="px-3 pt-2 md:hidden">
++      {!POCKETCODEX_MODE && <div className="px-3 pt-2 md:hidden">
+         <a
+           href={DISCORD_INVITE_URL}
+           target="_blank"
+@@ -185,7 +185,7 @@ export default function SidebarFooter({
+           </div>
+           <span className="text-sm font-normal text-foreground">{t('actions.joinCommunity')}</span>
+         </a>
+-      </div>
++      </div>}
+ 
+       {/* Mobile settings */}
+       <div className="px-3 pb-3 pt-2 md:hidden">
+diff --git a/src/components/sidebar/view/subcomponents/SidebarHeader.tsx b/src/components/sidebar/view/subcomponents/SidebarHeader.tsx
+index f3839a0..18fd0b8 100644
+--- a/src/components/sidebar/view/subcomponents/SidebarHeader.tsx
++++ b/src/components/sidebar/view/subcomponents/SidebarHeader.tsx
+@@ -3,7 +3,7 @@ import type { TFunction } from 'i18next';
+ 
+ import { Button, Input, Tooltip } from '../../../../shared/view/ui';
+ import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '../../../../constants/branding';
+-import { IS_PLATFORM } from '../../../../constants/config';
++import { IS_PLATFORM, POCKETCODEX_MODE } from '../../../../constants/config';
+ import { cn } from '../../../../lib/utils';
+ import type { SidebarSearchMode } from '../../types/types';
+ 
+@@ -72,7 +72,7 @@ export default function SidebarHeader({
+         className="truncate text-sm font-bold tracking-tight text-foreground"
+         style={{ fontFamily: CLOUDCLI_WORDMARK_FONT_FAMILY }}
+       >
+-        {t('app.title')}
++        {POCKETCODEX_MODE ? 'Agent' : t('app.title')}
+       </h1>
+     </div>
+   );
+@@ -85,7 +85,7 @@ export default function SidebarHeader({
+         style={{}}
+       >
+         <div className="flex items-center justify-between gap-2">
+-          {IS_PLATFORM ? (
++          {IS_PLATFORM && !POCKETCODEX_MODE ? (
+             <a
+               href="https://cloudcli.ai/dashboard"
+               className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80"
+@@ -133,7 +133,7 @@ export default function SidebarHeader({
+           </div>
+         </div>
+ 
+-        <GitHubStarBadge />
++        {!POCKETCODEX_MODE && <GitHubStarBadge />}
+ 
+         {/* Search bar */}
+         {showSearchTools && (
+@@ -247,7 +247,7 @@ export default function SidebarHeader({
+         style={isPWA && isMobile ? { paddingTop: '16px' } : {}}
+       >
+         <div className="flex items-center justify-between">
+-          {IS_PLATFORM ? (
++          {IS_PLATFORM && !POCKETCODEX_MODE ? (
+             <a
+               href="https://cloudcli.ai/dashboard"
+               className="flex min-w-0 items-center gap-2.5 transition-opacity active:opacity-70"
+diff --git a/src/components/sidebar/view/subcomponents/SidebarProjectsState.tsx b/src/components/sidebar/view/subcomponents/SidebarProjectsState.tsx
+index 12827c4..033d169 100644
+--- a/src/components/sidebar/view/subcomponents/SidebarProjectsState.tsx
++++ b/src/components/sidebar/view/subcomponents/SidebarProjectsState.tsx
+@@ -1,6 +1,7 @@
+ import { Folder, Search } from 'lucide-react';
+ import type { TFunction } from 'i18next';
+ import type { LoadingProgress } from '../../../../types/app';
++import { POCKETCODEX_MODE } from '../../../../constants/config';
+ 
+ type SidebarProjectsStateProps = {
+   isLoading: boolean;
+@@ -58,7 +59,9 @@ export default function SidebarProjectsState({
+           <Folder className="h-6 w-6 text-muted-foreground" />
+         </div>
+         <h3 className="mb-2 text-base font-medium text-foreground md:mb-1">{t('projects.noProjects')}</h3>
+-        <p className="text-sm text-muted-foreground">{t('projects.runClaudeCli')}</p>
++        <p className="text-sm text-muted-foreground">
++          {POCKETCODEX_MODE ? 'Create a registered project to start Codex.' : t('projects.runClaudeCli')}
++        </p>
+       </div>
+     );
+   }
+
