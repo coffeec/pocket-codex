@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: hostctl {status|cpu|memory|disk|battery|pal-status|pal-logs|frp-status|frp-logs}" >&2
+  exit 2
+fi
+
+exec ssh \
+  -i /home/node/.ssh/id_ed25519 \
+  -o BatchMode=yes \
+  -o ConnectTimeout=5 \
+  -o StrictHostKeyChecking=accept-new \
+  codexbot@host.docker.internal "$1"

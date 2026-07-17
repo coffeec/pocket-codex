@@ -1,0 +1,6 @@
+[Unit]
+Description=Check Palworld host health and send PushPlus alerts
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pal-watch

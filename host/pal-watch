@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source /etc/pal-watch.env
+
+PAL_SERVICE=${PAL_SERVICE:-palworld}
+FRP_SERVICE=${FRP_SERVICE:-sakurafrp-palworld}
+TEMP_LIMIT=${TEMP_LIMIT:-85}
+TEMP_CRITICAL=${TEMP_CRITICAL:-95}
+TEMP_CONSECUTIVE=${TEMP_CONSECUTIVE:-5}
+TEMP_RECOVERY=${TEMP_RECOVERY:-78}
+MEM_AVAILABLE_LIMIT_MB=${MEM_AVAILABLE_LIMIT_MB:-1500}
+DISK_FREE_LIMIT_GB=${DISK_FREE_LIMIT_GB:-10}
+STATE_DIR=/var/lib/pal-watch
+STATE_FILE=$STATE_DIR/last-alert
+TEMP_COUNT_FILE=$STATE_DIR/temp-high-count
+TEMP_ACTIVE_FILE=$STATE_DIR/temp-alert-active
+mkdir -p "$STATE_DIR"
+
+problems=()
+temp=$(LC_ALL=C sensors 2>/dev/null | awk '/Package id 0:/ {gsub(/[+]/,"",$4); print int($4); exit}')
+mem_mb=$(awk '/MemAvailable:/ {print int($2/1024)}' /proc/meminfo)
+disk_mb=$(df --output=avail -m / | tail -n 1 | tr -d ' ')
+
+temp_count=$(cat "$TEMP_COUNT_FILE" 2>/dev/null || echo 0)
+temp_active=$(cat "$TEMP_ACTIVE_FILE" 2>/dev/null || echo 0)
+if [[ -n "$temp" && "$temp" -ge "$TEMP_CRITICAL" ]]; then
+  temp_count=$TEMP_CONSECUTIVE
+  temp_active=1
+elif [[ -n "$temp" && "$temp" -ge "$TEMP_LIMIT" ]]; then
+  temp_count=$((temp_count + 1))
+  [[ "$temp_count" -ge "$TEMP_CONSECUTIVE" ]] && temp_active=1
+elif [[ -n "$temp" && "$temp" -le "$TEMP_RECOVERY" ]]; then
+  temp_count=0
+  temp_active=0
+else
+  temp_count=0
+fi
+printf '%s' "$temp_count" > "$TEMP_COUNT_FILE"
+printf '%s' "$temp_active" > "$TEMP_ACTIVE_FILE"
+[[ "$temp_active" -eq 1 ]] && problems+=("CPU ${temp:-unknown}C; sustained limit ${TEMP_LIMIT}C, critical ${TEMP_CRITICAL}C")
+[[ "$mem_mb" -lt "$MEM_AVAILABLE_LIMIT_MB" ]] && problems+=("available memory ${mem_mb}MB")
+[[ "$disk_mb" -lt $((DISK_FREE_LIMIT_GB * 1024)) ]] && problems+=("root free disk $((disk_mb / 1024))GB")
+systemctl is-active --quiet "$PAL_SERVICE" || problems+=("$PAL_SERVICE is not active")
+systemctl is-active --quiet "$FRP_SERVICE" || problems+=("$FRP_SERVICE is not active")
+
+if ((${#problems[@]})); then
+  message=$(IFS='; '; echo "${problems[*]}")
+else
+  message=OK
+fi
+previous=$(cat "$STATE_FILE" 2>/dev/null || true)
+[[ "$message" == "$previous" ]] && exit 0
+
+if [[ "$message" == OK ]]; then
+  title="Pal server recovered"
+  content="All monitored items are normal."
+else
+  title="Pal server warning"
+  content="$message"
+fi
+
+payload=$(printf '{"token":"%s","title":"%s","content":"%s","template":"txt"}' \
+  "$PUSHPLUS_TOKEN" "$title" "$content")
+curl -fsS --max-time 15 -H 'Content-Type: application/json' \
+  -d "$payload" https://www.pushplus.plus/send >/dev/null
+printf '%s' "$message" > "$STATE_FILE"

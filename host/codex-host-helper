@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PAL_SERVICE=palworld
+FRP_SERVICE=sakurafrp-palworld
+requested=${SSH_ORIGINAL_COMMAND:-}
+
+service_state() {
+  local service=$1
+  printf '%s: ' "$service"
+  systemctl is-active "$service" 2>/dev/null || true
+}
+
+case "$requested" in
+  status)
+    echo "== uptime =="
+    uptime
+    echo "== services =="
+    service_state "$PAL_SERVICE"
+    service_state "$FRP_SERVICE"
+    echo "== memory =="
+    free -h
+    echo "== root disk =="
+    df -h /
+    echo "== temperatures =="
+    LC_ALL=C sensors 2>/dev/null || echo "sensors unavailable"
+    ;;
+  cpu)
+    echo "== load =="
+    uptime
+    echo "== frequency MHz =="
+    awk -F: '/cpu MHz/ {sum+=$2; n++} END {if(n) printf "average: %.0f MHz across %d threads\n", sum/n, n}' /proc/cpuinfo
+    echo "== temperatures =="
+    LC_ALL=C sensors 2>/dev/null || echo "sensors unavailable"
+    ;;
+  memory)
+    free -h
+    echo
+    ps -eo pid,comm,%cpu,%mem,rss --sort=-rss | head -n 12
+    ;;
+  disk)
+    df -hT
+    ;;
+  battery)
+    battery=$(find /sys/class/power_supply -maxdepth 1 -type l -name 'BAT*' | head -n 1)
+    if [[ -z "$battery" ]]; then
+      echo "battery not found"
+      exit 1
+    fi
+    for field in status capacity energy_now energy_full energy_full_design charge_now charge_full charge_full_design; do
+      [[ -r "$battery/$field" ]] && printf '%s: %s\n' "$field" "$(<"$battery/$field")"
+    done
+    ;;
+  pal-status)
+    systemctl status "$PAL_SERVICE" --no-pager -l
+    ;;
+  pal-logs)
+    journalctl -u "$PAL_SERVICE" -n 120 --no-pager
+    ;;
+  frp-status)
+    systemctl status "$FRP_SERVICE" --no-pager -l
+    ;;
+  frp-logs)
+    journalctl -u "$FRP_SERVICE" -n 120 --no-pager
+    ;;
+  *)
+    echo "Denied. Unknown read-only command: $requested" >&2
+    exit 126
+    ;;
+esac

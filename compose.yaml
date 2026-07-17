@@ -1,0 +1,83 @@
+services:
+  codex-agent:
+    image: pocket-codex:local
+    build:
+      context: .
+      args:
+        CODEX_VERSION: "0.144.5"
+        CC_SWITCH_VERSION: "v5.9.1"
+        TTYD_VERSION: "1.7.7"
+    container_name: codex-agent
+    restart: unless-stopped
+    environment:
+      WEB_USER: admin
+      CC_SWITCH_PROXY: "0"
+    secrets:
+      - web_password
+    volumes:
+      - ./data/codex:/home/node/.codex
+      - ./data/cc-switch:/home/node/.cc-switch
+      - ./data/ssh:/home/node/.ssh
+      - ./workspace:/workspace
+    ports:
+      - "127.0.0.1:7681:7681"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - sub2api_net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2.0
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+
+  codex-web:
+    image: pocket-codex:local
+    container_name: codex-web
+    restart: unless-stopped
+    entrypoint: ["node", "/app/web/server.mjs"]
+    environment:
+      WEB_USER: admin
+      WEB_PORT: "7682"
+      CODEX_WEB_DATA: /home/node/.codex-web
+    secrets:
+      - web_password
+    volumes:
+      - ./data/codex:/home/node/.codex
+      - ./data/codex-web:/home/node/.codex-web
+      - ./data/ssh:/home/node/.ssh
+      - ./workspace:/workspace:ro
+    ports:
+      - "127.0.0.1:7682:7682"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - sub2api_net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2.0
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7682/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+secrets:
+  web_password:
+    file: ./secrets/web_password.txt
+
+networks:
+  sub2api_net:
+    external: true
+    name: ${SUB2API_NETWORK:?Set SUB2API_NETWORK in .env}

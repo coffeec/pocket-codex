@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+data
+secrets
+node_modules
+*.zip
+*.tar
+*.tar.gz
+*.bak
+*.bak-*
+*.new
+*.log
