@@ -203,6 +203,8 @@ test('GPT forwards true Sub2API deltas with configured model and effort', async 
   assert.equal(requests[0].model, 'gpt-next');
   assert.equal(requests[0].reasoning.effort, 'xhigh');
   assert.ok(requests[0].tools.some((item) => item.name === 'system_status' && item.strict === true));
+  assert.match(requests[0].input[0].content, /只有输入中实际包含 input_image 时才能进行视觉分析/);
+  assert.match(requests[0].input[0].content, /不得声称用户重新上传原图后你就能进行视觉判断/);
 });
 
 test('mutating function calls require a same-session one-time confirmation', async (t) => {
