@@ -16,13 +16,45 @@ function functionCalls(payload) {
     }));
 }
 
+function annotationSources(annotations) {
+  const sources = [];
+  const seen = new Set();
+  for (const annotation of annotations) {
+    if (annotation?.type !== 'url_citation') continue;
+    try {
+      const parsed = new URL(String(annotation.url || ''));
+      if (!['http:', 'https:'].includes(parsed.protocol) || parsed.toString().length > 2048) continue;
+      const url = parsed.toString();
+      if (seen.has(url)) continue;
+      seen.add(url);
+      const title = String(annotation.title || parsed.hostname)
+        .replace(/[\[\]\r\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) || parsed.hostname;
+      sources.push({ title, url });
+      if (sources.length >= 8) break;
+    } catch { /* ignore malformed provider citations */ }
+  }
+  return sources;
+}
+
+function responseSources(payload, streamedAnnotations = []) {
+  const completedAnnotations = (payload?.output || []).flatMap((item) => item.content || [])
+    .flatMap((item) => item.annotations || []);
+  return annotationSources([...streamedAnnotations, ...completedAnnotations]);
+}
+
+function sourceMarkdown(sources) {
+  if (!sources?.length) return '';
+  const lines = sources.map(({ title, url }) => `- [${title}](${url.replace(/\(/g, '%28').replace(/\)/g, '%29')})`);
+  return `\n\n**来源**\n${lines.join('\n')}`;
+}
+
 async function readResponse(response, onDelta) {
   const type = response.headers.get('content-type') || '';
   if (!type.includes('text/event-stream')) {
     const payload = await response.json();
     const text = responseText(payload);
     if (text) onDelta(text);
-    return { text, calls: functionCalls(payload), usage: payload.usage || null };
+    return { text, calls: functionCalls(payload), sources: responseSources(payload), usage: payload.usage || null };
   }
 
   const reader = response.body.getReader();
@@ -30,6 +62,7 @@ async function readResponse(response, onDelta) {
   let buffer = '';
   let text = '';
   let completed = null;
+  const streamedAnnotations = [];
   while (true) {
     const { value, done } = await reader.read();
     buffer += decoder.decode(value || new Uint8Array(), { stream: !done }).replace(/\r\n/g, '\n');
@@ -48,6 +81,8 @@ async function readResponse(response, onDelta) {
         onDelta(event.delta);
       } else if (event.type === 'response.completed') {
         completed = event.response || null;
+      } else if (event.type === 'response.output_text.annotation.added' && event.annotation) {
+        streamedAnnotations.push(event.annotation);
       } else if (event.type === 'response.failed' || event.type === 'error') {
         throw new Error(event.error?.message || event.response?.error?.message || 'Sub2API 流式响应失败');
       }
@@ -58,7 +93,12 @@ async function readResponse(response, onDelta) {
     text = responseText(completed);
     if (text) onDelta(text);
   }
-  return { text, calls: functionCalls(completed), usage: completed?.usage || null };
+  return {
+    text,
+    calls: functionCalls(completed),
+    sources: responseSources(completed, streamedAnnotations),
+    usage: completed?.usage || null,
+  };
 }
 
 export async function runResponses(options) {
@@ -94,6 +134,11 @@ export async function runResponses(options) {
     usage = result.usage || usage;
     if (result.calls.length === 0) {
       if (!finalText.trim()) throw new Error('Sub2API 未返回文本');
+      const sources = sourceMarkdown(result.sources);
+      if (sources) {
+        finalText += sources;
+        options.onDelta(sources);
+      }
       return { text: finalText, usage };
     }
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   executeMutatingTool,
   executeReadTool,
+  MODEL_TOOLS,
   MUTATING_TOOLS,
   redactToolOutput,
   TOOL_DEFINITIONS,
@@ -12,6 +13,8 @@ import {
 test('server tools expose only strict predefined schemas', () => {
   assert.equal(TOOL_DEFINITIONS.length, 15);
   assert.ok(TOOL_DEFINITIONS.every((item) => item.type === 'function' && item.strict === true));
+  assert.equal(MODEL_TOOLS.length, 16);
+  assert.deepEqual(MODEL_TOOLS.at(-1), { type: 'web_search' });
   assert.deepEqual([...MUTATING_TOOLS], [
     'palworld_backup', 'broadcast', 'restart_palworld', 'restart_frp', 'restart_pocket',
   ]);

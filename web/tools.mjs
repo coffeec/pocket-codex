@@ -50,6 +50,11 @@ export const TOOL_DEFINITIONS = [
   tool('restart_pocket', '重启 PocketCodex Web 容器。此操作必须由用户二次确认。'),
 ];
 
+export const MODEL_TOOLS = [
+  ...TOOL_DEFINITIONS,
+  { type: 'web_search' },
+];
+
 export const MUTATING_TOOLS = new Set([
   'palworld_backup',
   'broadcast',
