@@ -17,7 +17,7 @@ test('production UI is GPT-only, fixed dark and mobile-safe', () => {
   assert.match(html, /id="statusStrip"/);
   assert.match(html, /id="modelSelect"/);
   assert.match(html, /id="effortSelect"/);
-  assert.match(html, /id="contextMeter"/);
+  assert.doesNotMatch(html, /contextMeter/);
   assert.match(html, /id="archiveDialog"/);
   assert.match(html, />CPU<\/span>/);
   assert.match(source, /咖啡自研AI助手/);
@@ -44,7 +44,8 @@ test('message submission locks before conversation setup and preserves ephemeral
   assert.match(source, /document\.hidden[\s\S]*scheduleStatusPoll/);
   assert.match(source, /openArchiveDialog\(conversation\)/);
   assert.match(source, /过去 1、5、15 分钟/);
-  assert.match(source, /模型上限未知/);
+  assert.doesNotMatch(source, /contextMeter|模型上限未知/);
+  assert.match(source, /capacity-remaining/);
 });
 
 function pocketUrl(url) {
@@ -177,7 +178,7 @@ test('GPT forwards true Sub2API deltas with configured model and effort', async 
   const upstream = http.createServer(async (req, res) => {
     if (req.url === '/models') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ data: [{ id: 'gpt-test' }, { id: 'gpt-next', context_window: 128000 }] }));
+      return res.end(JSON.stringify({ data: [{ id: 'gpt-test' }, { id: 'gpt-next' }] }));
     }
     assert.equal(req.headers.authorization, 'Bearer test-key');
     let body = '';
@@ -198,7 +199,6 @@ test('GPT forwards true Sub2API deltas with configured model and effort', async 
   const bootstrap = await (await basicRequest(`${base}/api/bootstrap`)).json();
   assert.deepEqual(bootstrap.models, ['gpt-test', 'gpt-next']);
   assert.equal(bootstrap.modelCatalog.source, 'sub2api');
-  assert.deepEqual(bootstrap.modelCatalog.contextWindows, { 'gpt-next': 128000 });
   const created = await (await basicRequest(`${base}/api/conversations`, {
     method: 'POST', body: JSON.stringify({ model: 'gpt-next', reasoningEffort: 'xhigh' }),
   })).json();

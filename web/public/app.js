@@ -18,8 +18,6 @@ const elements = {
   logoutButton: document.querySelector('#logoutButton'),
   conversationTitle: document.querySelector('#conversationTitle'),
   modelLabel: document.querySelector('#modelLabel'),
-  contextMeter: document.querySelector('#contextMeter'),
-  contextRing: document.querySelector('#contextRing'),
   renameConversation: document.querySelector('#renameConversation'),
   archiveConversation: document.querySelector('#archiveConversation'),
   statusStrip: document.querySelector('#statusStrip'),
@@ -264,50 +262,6 @@ function renderModelOptions() {
     : '从 Sub2API 获取的模型';
 }
 
-function latestContextUsage() {
-  const messages = state.conversation?.messages || [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const usage = messages[index]?.usage;
-    if (!usage || messages[index]?.role !== 'assistant') continue;
-    const total = Number(usage.total_tokens);
-    if (Number.isFinite(total) && total >= 0) return Math.round(total);
-    const input = Number(usage.input_tokens);
-    const output = Number(usage.output_tokens);
-    if (Number.isFinite(input) || Number.isFinite(output)) {
-      return Math.round((Number.isFinite(input) ? input : 0) + (Number.isFinite(output) ? output : 0));
-    }
-  }
-  return 0;
-}
-
-function contextWindowForModel(model) {
-  const value = state.modelCatalog?.contextWindows?.[model];
-  return Number.isSafeInteger(value) && value > 0 ? value : null;
-}
-
-function formatTokenCount(value) {
-  return new Intl.NumberFormat('zh-CN').format(Math.max(0, Number(value) || 0));
-}
-
-function renderContextUsage() {
-  const model = state.conversation?.model || state.draftModel || state.defaultModel;
-  const used = latestContextUsage();
-  const limit = contextWindowForModel(model);
-  const percent = limit ? Math.min(100, Math.max(0, used / limit * 100)) : null;
-  const description = limit
-    ? `上下文约 ${formatTokenCount(used)} / ${formatTokenCount(limit)} Token（${percent.toFixed(percent < 10 ? 1 : 0)}%）`
-    : used > 0
-      ? `上下文约 ${formatTokenCount(used)} Token，模型上限未知`
-      : '尚无上下文用量，模型上限未知';
-  elements.contextMeter.classList.toggle('is-unknown', percent === null);
-  elements.contextMeter.classList.toggle('has-usage', used > 0);
-  elements.contextMeter.style.setProperty('--context-progress', `${percent === null ? 0 : percent * 3.6}deg`);
-  elements.contextMeter.title = description;
-  elements.contextMeter.setAttribute('aria-label', description);
-  elements.contextRing.setAttribute('aria-label', description);
-  elements.contextMeter.dataset.description = description;
-}
-
 function syncHeader() {
   const conversation = state.conversation;
   elements.conversationTitle.textContent = conversation?.title || '新会话';
@@ -317,7 +271,6 @@ function syncHeader() {
   elements.renameConversation.disabled = !conversation || state.running;
   elements.archiveConversation.disabled = !conversation || state.running || conversation.archived === true;
   renderModelOptions();
-  renderContextUsage();
 }
 
 function renderCapabilities() {
@@ -716,6 +669,18 @@ function formatCapacity(value) {
   return `${match[1]} ${unit}`;
 }
 
+function capacityStatus(used, total, percent, available) {
+  const value = document.createElement('span');
+  value.className = 'capacity-value';
+  const usage = document.createElement('span');
+  usage.textContent = `已用 ${formatCapacity(used)} / ${formatCapacity(total)}（${percent ?? '--'}%）`;
+  const remaining = document.createElement('span');
+  remaining.className = 'capacity-remaining';
+  remaining.textContent = `剩余 ${formatCapacity(available)}`;
+  value.append(usage, remaining);
+  return value;
+}
+
 function serviceLabel(value) {
   if (serviceUp(value)) return '正常';
   if (value == null || value === '' || value === 'unknown') return '未知';
@@ -741,7 +706,8 @@ function statusRow(label, value, tone = '', hint = '') {
   const name = document.createElement('span');
   name.textContent = label;
   const content = document.createElement('strong');
-  content.textContent = value || '--';
+  if (value instanceof Node) content.append(value);
+  else content.textContent = value || '--';
   row.append(name, content);
   if (hint) {
     const help = document.createElement('small');
@@ -790,8 +756,8 @@ function renderStatus(status) {
   elements.statusDetails.replaceChildren(
     statusRow('CPU 温度', Number.isFinite(status.temperature) ? `${status.temperature.toFixed(1)} °C` : '不可用'),
     statusRow('系统负载', status.load?.length ? status.load.join(' / ') : '不可用', '', '依次为过去 1、5、15 分钟等待 CPU 或 I/O 的平均任务数，越接近可用 CPU 线程数代表越繁忙。'),
-    statusRow('内存', status.memory ? `已用 ${formatCapacity(status.memory.used)} / ${formatCapacity(status.memory.total)}（${memoryPercent ?? '--'}%），剩余 ${formatCapacity(status.memory.available)}` : '不可用'),
-    statusRow('SSD', status.disk ? `已用 ${formatCapacity(status.disk.used)} / ${formatCapacity(status.disk.size)}（${diskPercent ?? '--'}%），剩余 ${formatCapacity(status.disk.available)}` : '不可用', warning),
+    statusRow('内存', status.memory ? capacityStatus(status.memory.used, status.memory.total, memoryPercent, status.memory.available) : '不可用'),
+    statusRow('SSD', status.disk ? capacityStatus(status.disk.used, status.disk.size, diskPercent, status.disk.available) : '不可用', warning),
     statusRow('电池', status.battery ? `${status.battery.capacity}% · ${batteryState(status.battery.state)}` : '不可用'),
     statusRow('Palworld', serviceLabel(status.services?.palworld), serviceTone(status.services?.palworld)),
     statusRow('FRP', serviceLabel(status.services?.frp), serviceTone(status.services?.frp)),
@@ -1212,7 +1178,6 @@ elements.archiveToggle.addEventListener('click', () => {
 });
 elements.renameConversation.addEventListener('click', () => openRenameDialog());
 elements.archiveConversation.addEventListener('click', () => openArchiveDialog());
-elements.contextMeter.addEventListener('click', () => showToast(elements.contextMeter.dataset.description || '上下文用量未知'));
 elements.modelSelect.addEventListener('change', () => {
   state.draftModel = elements.modelSelect.value;
   if (state.conversation) updateConversationSettings({ model: state.draftModel });
