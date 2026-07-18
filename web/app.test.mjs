@@ -18,6 +18,17 @@ test('mobile layout keeps the composer in the viewport and gives selectors a ful
   assert.match(css, /#modelControl,\s*#effortControl\s*\{[^}]*flex:\s*1 1 calc\(50% - 3px\);/s);
 });
 
+test('message submission locks synchronously before conversation setup', () => {
+  const source = fs.readFileSync(new URL('./public/app.js', import.meta.url), 'utf8');
+  const sendStart = source.indexOf('async function sendMessage(text)');
+  const sendEnd = source.indexOf('\nasync function stopRun', sendStart);
+  assert.ok(sendStart >= 0 && sendEnd > sendStart);
+  const sendBlock = source.slice(sendStart, sendEnd);
+  assert.match(sendBlock, /state\.running \|\| state\.sendInFlight/);
+  assert.match(sendBlock, /state\.sendInFlight = true;[\s\S]*await ensureConversation\(\)/);
+  assert.match(sendBlock, /finally \{[\s\S]*state\.sendInFlight = false;/);
+});
+
 function pocketUrl(url) {
   const parsed = new URL(url);
   if (parsed.pathname === '/api' || parsed.pathname.startsWith('/api/')) {

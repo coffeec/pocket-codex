@@ -71,6 +71,7 @@ const state = {
   stagedAttachments: [],
   capabilities: { imageInput: null },
   running: false,
+  sendInFlight: false,
   liveText: '',
   liveDetails: [],
   toastTimer: null,
@@ -811,8 +812,9 @@ async function ensureConversation() {
 
 async function sendMessage(text) {
   const prompt = String(text || '').trim();
-  if (!prompt || state.running) return;
+  if (!prompt || state.running || state.sendInFlight) return;
   if (state.mode === 'agent' && !state.conversation?.projectId) return showToast('请先选择登记项目');
+  state.sendInFlight = true;
   try {
     await ensureConversation();
     state.liveText = '';
@@ -838,6 +840,7 @@ async function sendMessage(text) {
   } catch (error) {
     showToast(error.message);
   } finally {
+    state.sendInFlight = false;
     state.liveText = '';
     state.liveDetails = [];
     setRunning(false);
