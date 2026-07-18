@@ -74,7 +74,15 @@
         <button class="icon-button menu-button" id="openSidebar" type="button" aria-label="打开会话列表" title="会话列表">
           <svg class="icon"><use href="#i-menu"/></svg>
         </button>
-        <div class="topbar-title"><strong id="conversationTitle">新会话</strong><span id="modelLabel">加载模型中</span></div>
+        <div class="topbar-title">
+          <strong id="conversationTitle">新会话</strong>
+          <div class="topbar-meta">
+            <span id="modelLabel">加载模型中</span>
+            <button class="context-meter is-unknown" id="contextMeter" type="button" aria-label="上下文用量未知" title="上下文用量未知">
+              <span class="context-ring" id="contextRing" role="img" aria-label="上下文用量未知"></span>
+            </button>
+          </div>
+        </div>
         <button class="icon-button" id="renameConversation" type="button" aria-label="重命名会话" title="重命名">
           <svg class="icon"><use href="#i-pencil"/></svg>
         </button>
@@ -84,15 +92,15 @@
       </header>
 
       <section class="status-strip is-loading" id="statusStrip" aria-label="服务器状态">
-        <button class="status-chip" id="temperatureChip" type="button" data-status-detail><span>温度</span><strong id="temperatureValue">--</strong></button>
+        <button class="status-chip" id="temperatureChip" type="button" data-status-detail><span>CPU</span><strong id="temperatureValue">--</strong></button>
         <button class="status-chip" id="memoryChip" type="button" data-status-detail><span>内存</span><strong id="memoryValue">--</strong></button>
         <button class="status-chip desktop-status" id="diskChip" type="button" data-status-detail><span>SSD</span><strong id="diskValue">--</strong></button>
         <button class="status-chip desktop-status" type="button" data-status-detail><span>电池</span><strong id="batteryValue">--</strong></button>
-        <button class="status-chip service-chip" type="button" data-status-detail><span class="service-dot" id="palDot"></span><strong>帕鲁</strong></button>
-        <button class="status-chip service-chip" type="button" data-status-detail><span class="service-dot" id="frpDot"></span><strong>FRP</strong></button>
-        <button class="status-chip service-chip desktop-status" type="button" data-status-detail><span class="service-dot" id="apiDot"></span><strong>Sub2API</strong></button>
-        <button class="icon-button status-more" id="statusMore" type="button" aria-label="查看详细状态" title="详细状态">
-          <svg class="icon"><use href="#i-chevron-down"/></svg>
+        <button class="status-chip service-chip" type="button" data-status-detail><span class="service-dot" id="palDot" aria-hidden="true"></span><span>帕鲁</span><strong id="palValue">--</strong></button>
+        <button class="status-chip service-chip" type="button" data-status-detail><span class="service-dot" id="frpDot" aria-hidden="true"></span><span>FRP</span><strong id="frpValue">--</strong></button>
+        <button class="status-chip service-chip desktop-status" type="button" data-status-detail><span class="service-dot" id="apiDot" aria-hidden="true"></span><span>Sub2API</span><strong id="apiValue">--</strong></button>
+        <button class="icon-button status-more" id="statusMore" type="button" aria-label="打开服务器详情" title="服务器详情">
+          <span class="status-more-label">详情</span><svg class="icon"><use href="#i-chevron-down"/></svg>
         </button>
       </section>
 
@@ -166,6 +174,15 @@
       <div class="dialog-head"><strong>重命名会话</strong><button class="icon-button" data-close-dialog type="button" aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button></div>
       <label><span>会话名称</span><input id="renameInput" maxlength="80" required></label>
       <div class="dialog-actions"><button class="secondary-button" data-close-dialog type="button">取消</button><button class="primary-button" type="submit">保存</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="form-dialog" id="archiveDialog">
+    <form id="archiveForm">
+      <div class="dialog-head"><strong>归档会话</strong><button class="icon-button" data-close-dialog type="button" aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button></div>
+      <p>确认归档“<strong id="archiveConversationTitle">此会话</strong>”？归档后会话内容仍会保留，并可随时恢复。</p>
+      <input id="archiveConversationId" type="hidden">
+      <div class="dialog-actions"><button class="secondary-button" data-close-dialog type="button">取消</button><button class="primary-button" type="submit">确认归档</button></div>
     </form>
   </dialog>
 

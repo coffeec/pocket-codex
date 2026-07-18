@@ -254,12 +254,12 @@ export function createCodexWebApp(options = {}) {
 
   async function listModels() {
     const config = providerConfig(configPath, authPath, 'gpt-5.6-sol', 'sub2api_local');
-    if (mockMode) return { models: [config.model, 'gpt-5.5-codex'].filter(Boolean), available: true, source: 'mock' };
+    if (mockMode) return { models: [config.model, 'gpt-5.5-codex'].filter(Boolean), contextWindows: {}, available: true, source: 'mock' };
     if (config.provider !== 'sub2api_local') {
-      return { models: [config.model].filter(Boolean), available: false, source: 'configured', error: 'Provider 必须为 sub2api_local' };
+      return { models: [config.model].filter(Boolean), contextWindows: {}, available: false, source: 'configured', error: 'Provider 必须为 sub2api_local' };
     }
     if (!config.apiKey) {
-      return { models: [config.model].filter(Boolean), available: false, source: 'configured', error: 'Sub2API 凭据不可用' };
+      return { models: [config.model].filter(Boolean), contextWindows: {}, available: false, source: 'configured', error: 'Sub2API 凭据不可用' };
     }
     try {
       const response = await fetch(`${sub2apiBaseUrl}/models`, {
@@ -268,14 +268,21 @@ export function createCodexWebApp(options = {}) {
       });
       if (!response.ok) throw new Error('models unavailable');
       const payload = await response.json();
-      const values = (payload.data || [])
-        .map((item) => String(item.id || '').trim())
-        .filter((value) => /^[A-Za-z0-9._:-]{1,100}$/.test(value))
-        .slice(0, 100);
+      const items = (payload.data || []).slice(0, 100);
+      const values = items.map((item) => String(item.id || '').trim())
+        .filter((value) => /^[A-Za-z0-9._:-]{1,100}$/.test(value));
+      const contextWindows = {};
+      for (const item of items) {
+        const id = String(item.id || '').trim();
+        const candidate = Number(item.context_window ?? item.context_length ?? item.contextWindow);
+        if (values.includes(id) && Number.isSafeInteger(candidate) && candidate >= 1024 && candidate <= 10_000_000) {
+          contextWindows[id] = candidate;
+        }
+      }
       if (config.model && !values.includes(config.model)) values.unshift(config.model);
-      return { models: values, available: true, source: 'sub2api' };
+      return { models: values, contextWindows, available: true, source: 'sub2api' };
     } catch {
-      return { models: [config.model].filter(Boolean), available: false, source: 'configured', error: '无法刷新 Sub2API 模型列表' };
+      return { models: [config.model].filter(Boolean), contextWindows: {}, available: false, source: 'configured', error: '无法刷新 Sub2API 模型列表' };
     }
   }
 

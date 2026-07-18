@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_NAME = 'pocketcodex-shell-v5';
+const CACHE_NAME = 'pocketcodex-shell-v6';
 const SHELL_FILES = [
   '/app.css',
   '/app.js',

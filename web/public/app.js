@@ -18,6 +18,8 @@ const elements = {
   logoutButton: document.querySelector('#logoutButton'),
   conversationTitle: document.querySelector('#conversationTitle'),
   modelLabel: document.querySelector('#modelLabel'),
+  contextMeter: document.querySelector('#contextMeter'),
+  contextRing: document.querySelector('#contextRing'),
   renameConversation: document.querySelector('#renameConversation'),
   archiveConversation: document.querySelector('#archiveConversation'),
   statusStrip: document.querySelector('#statusStrip'),
@@ -29,6 +31,9 @@ const elements = {
   palDot: document.querySelector('#palDot'),
   frpDot: document.querySelector('#frpDot'),
   apiDot: document.querySelector('#apiDot'),
+  palValue: document.querySelector('#palValue'),
+  frpValue: document.querySelector('#frpValue'),
+  apiValue: document.querySelector('#apiValue'),
   statusMore: document.querySelector('#statusMore'),
   chatRegion: document.querySelector('#chatRegion'),
   emptyState: document.querySelector('#emptyState'),
@@ -61,6 +66,10 @@ const elements = {
   renameDialog: document.querySelector('#renameDialog'),
   renameForm: document.querySelector('#renameForm'),
   renameInput: document.querySelector('#renameInput'),
+  archiveDialog: document.querySelector('#archiveDialog'),
+  archiveForm: document.querySelector('#archiveForm'),
+  archiveConversationId: document.querySelector('#archiveConversationId'),
+  archiveConversationTitle: document.querySelector('#archiveConversationTitle'),
   deleteDialog: document.querySelector('#deleteDialog'),
   deleteForm: document.querySelector('#deleteForm'),
   deleteConversationId: document.querySelector('#deleteConversationId'),
@@ -214,7 +223,7 @@ function conversationItem(conversation, archived = false) {
     actions.append(actionButton('restore', '恢复', () => setArchived(conversation.id, false)));
     actions.append(actionButton('trash', '永久删除', () => openDeleteDialog(conversation.id), true));
   } else {
-    actions.append(actionButton('archive', '归档', () => setArchived(conversation.id, true)));
+    actions.append(actionButton('archive', '归档', () => openArchiveDialog(conversation)));
   }
   item.append(select, actions);
   return item;
@@ -255,6 +264,50 @@ function renderModelOptions() {
     : '从 Sub2API 获取的模型';
 }
 
+function latestContextUsage() {
+  const messages = state.conversation?.messages || [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const usage = messages[index]?.usage;
+    if (!usage || messages[index]?.role !== 'assistant') continue;
+    const total = Number(usage.total_tokens);
+    if (Number.isFinite(total) && total >= 0) return Math.round(total);
+    const input = Number(usage.input_tokens);
+    const output = Number(usage.output_tokens);
+    if (Number.isFinite(input) || Number.isFinite(output)) {
+      return Math.round((Number.isFinite(input) ? input : 0) + (Number.isFinite(output) ? output : 0));
+    }
+  }
+  return 0;
+}
+
+function contextWindowForModel(model) {
+  const value = state.modelCatalog?.contextWindows?.[model];
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function formatTokenCount(value) {
+  return new Intl.NumberFormat('zh-CN').format(Math.max(0, Number(value) || 0));
+}
+
+function renderContextUsage() {
+  const model = state.conversation?.model || state.draftModel || state.defaultModel;
+  const used = latestContextUsage();
+  const limit = contextWindowForModel(model);
+  const percent = limit ? Math.min(100, Math.max(0, used / limit * 100)) : null;
+  const description = limit
+    ? `上下文约 ${formatTokenCount(used)} / ${formatTokenCount(limit)} Token（${percent.toFixed(percent < 10 ? 1 : 0)}%）`
+    : used > 0
+      ? `上下文约 ${formatTokenCount(used)} Token，模型上限未知`
+      : '尚无上下文用量，模型上限未知';
+  elements.contextMeter.classList.toggle('is-unknown', percent === null);
+  elements.contextMeter.classList.toggle('has-usage', used > 0);
+  elements.contextMeter.style.setProperty('--context-progress', `${percent === null ? 0 : percent * 3.6}deg`);
+  elements.contextMeter.title = description;
+  elements.contextMeter.setAttribute('aria-label', description);
+  elements.contextRing.setAttribute('aria-label', description);
+  elements.contextMeter.dataset.description = description;
+}
+
 function syncHeader() {
   const conversation = state.conversation;
   elements.conversationTitle.textContent = conversation?.title || '新会话';
@@ -264,6 +317,7 @@ function syncHeader() {
   elements.renameConversation.disabled = !conversation || state.running;
   elements.archiveConversation.disabled = !conversation || state.running || conversation.archived === true;
   renderModelOptions();
+  renderContextUsage();
 }
 
 function renderCapabilities() {
@@ -637,7 +691,51 @@ function setDot(element, up) {
   element.classList.toggle('is-down', !up);
 }
 
-function statusRow(label, value, tone = '') {
+function capacityNumber(value) {
+  const match = /^([\d.]+)\s*([KMGTP])?(i)?B?$/i.exec(String(value || '').trim());
+  if (!match) return null;
+  const powers = { K: 1, M: 2, G: 3, T: 4, P: 5 };
+  const power = powers[(match[2] || 'G').toUpperCase()] || 3;
+  return Number(match[1]) * 1024 ** power;
+}
+
+function capacityPercent(used, total, fallback = '') {
+  const usedBytes = capacityNumber(used);
+  const totalBytes = capacityNumber(total);
+  if (Number.isFinite(usedBytes) && Number.isFinite(totalBytes) && totalBytes > 0) {
+    return Math.round(usedBytes / totalBytes * 100);
+  }
+  const parsed = Number.parseFloat(String(fallback || '').replace('%', ''));
+  return Number.isFinite(parsed) ? Math.round(parsed) : null;
+}
+
+function formatCapacity(value) {
+  const match = /^([\d.]+)\s*([KMGTP])?(i)?B?$/i.exec(String(value || '').trim());
+  if (!match) return String(value || '不可用');
+  const unit = `${(match[2] || 'G').toUpperCase()}${match[3] ? 'i' : ''}B`;
+  return `${match[1]} ${unit}`;
+}
+
+function serviceLabel(value) {
+  if (serviceUp(value)) return '正常';
+  if (value == null || value === '' || value === 'unknown') return '未知';
+  return '异常';
+}
+
+function serviceTone(value) {
+  if (serviceUp(value)) return 'ok';
+  return value == null || value === '' || value === 'unknown' ? 'warning' : 'critical';
+}
+
+function batteryState(value) {
+  const labels = {
+    charging: '充电中', discharging: '使用电池', full: '已充满',
+    'not charging': '未充电', unknown: '状态未知',
+  };
+  return labels[String(value || 'unknown').toLowerCase()] || String(value || '状态未知');
+}
+
+function statusRow(label, value, tone = '', hint = '') {
   const row = document.createElement('div');
   row.className = `status-detail-row${tone ? ` is-${tone}` : ''}`;
   const name = document.createElement('span');
@@ -645,6 +743,11 @@ function statusRow(label, value, tone = '') {
   const content = document.createElement('strong');
   content.textContent = value || '--';
   row.append(name, content);
+  if (hint) {
+    const help = document.createElement('small');
+    help.textContent = hint;
+    row.append(help);
+  }
   return row;
 }
 
@@ -656,13 +759,18 @@ function renderStatus(status) {
     elements.memoryValue.textContent = '--';
     elements.diskValue.textContent = '--';
     elements.batteryValue.textContent = '--';
+    elements.palValue.textContent = '--';
+    elements.frpValue.textContent = '--';
+    elements.apiValue.textContent = '--';
     elements.sidebarStatus.textContent = '状态不可用';
     setDot(elements.sidebarIndicator, false);
     return;
   }
   elements.temperatureValue.textContent = Number.isFinite(status.temperature) ? `${status.temperature.toFixed(0)}°C` : '--';
-  elements.memoryValue.textContent = status.memory ? `${status.memory.used}/${status.memory.total}` : '--';
-  elements.diskValue.textContent = status.disk?.available || '--';
+  const memoryPercent = status.memory ? capacityPercent(status.memory.used, status.memory.total) : null;
+  const diskPercent = status.disk ? capacityPercent(status.disk.used, status.disk.size, status.disk.percent) : null;
+  elements.memoryValue.textContent = memoryPercent == null ? '--' : `${memoryPercent}%`;
+  elements.diskValue.textContent = diskPercent == null ? '--' : `${diskPercent}%`;
   elements.batteryValue.textContent = status.battery ? `${status.battery.capacity}%` : '--';
   const warning = status.diskWarning?.level;
   elements.diskChip.classList.toggle('is-warning', warning === 'warning');
@@ -670,6 +778,9 @@ function renderStatus(status) {
   const palUp = serviceUp(status.services?.palworld);
   const frpUp = serviceUp(status.services?.frp);
   const apiUp = serviceUp(status.services?.sub2api);
+  elements.palValue.textContent = serviceLabel(status.services?.palworld);
+  elements.frpValue.textContent = serviceLabel(status.services?.frp);
+  elements.apiValue.textContent = serviceLabel(status.services?.sub2api);
   setDot(elements.palDot, palUp);
   setDot(elements.frpDot, frpUp);
   setDot(elements.apiDot, apiUp);
@@ -678,13 +789,13 @@ function renderStatus(status) {
 
   elements.statusDetails.replaceChildren(
     statusRow('CPU 温度', Number.isFinite(status.temperature) ? `${status.temperature.toFixed(1)} °C` : '不可用'),
-    statusRow('系统负载', status.load?.length ? status.load.join(' / ') : '不可用'),
-    statusRow('内存', status.memory ? `${status.memory.used} 已用，${status.memory.available} 可用` : '不可用'),
-    statusRow('SSD', status.disk ? `${status.disk.available} 可用，已用 ${status.disk.percent}` : '不可用', warning),
-    statusRow('电池', status.battery ? `${status.battery.capacity}% · ${status.battery.state}` : '不可用'),
-    statusRow('Palworld', status.services?.palworld || 'unknown', palUp ? 'ok' : 'critical'),
-    statusRow('FRP', status.services?.frp || 'unknown', frpUp ? 'ok' : 'critical'),
-    statusRow('Sub2API', status.sub2api?.latencyMs != null ? `${status.services?.sub2api} · ${status.sub2api.latencyMs} ms` : status.services?.sub2api || 'unknown', apiUp ? 'ok' : 'critical'),
+    statusRow('系统负载', status.load?.length ? status.load.join(' / ') : '不可用', '', '依次为过去 1、5、15 分钟等待 CPU 或 I/O 的平均任务数，越接近可用 CPU 线程数代表越繁忙。'),
+    statusRow('内存', status.memory ? `已用 ${formatCapacity(status.memory.used)} / ${formatCapacity(status.memory.total)}（${memoryPercent ?? '--'}%），剩余 ${formatCapacity(status.memory.available)}` : '不可用'),
+    statusRow('SSD', status.disk ? `已用 ${formatCapacity(status.disk.used)} / ${formatCapacity(status.disk.size)}（${diskPercent ?? '--'}%），剩余 ${formatCapacity(status.disk.available)}` : '不可用', warning),
+    statusRow('电池', status.battery ? `${status.battery.capacity}% · ${batteryState(status.battery.state)}` : '不可用'),
+    statusRow('Palworld', serviceLabel(status.services?.palworld), serviceTone(status.services?.palworld)),
+    statusRow('FRP', serviceLabel(status.services?.frp), serviceTone(status.services?.frp)),
+    statusRow('Sub2API', status.sub2api?.latencyMs != null ? `${serviceLabel(status.services?.sub2api)} · ${status.sub2api.latencyMs} ms` : serviceLabel(status.services?.sub2api), serviceTone(status.services?.sub2api)),
   );
   if (status.dockerCache?.length) {
     const cache = document.createElement('div');
@@ -809,6 +920,13 @@ function openRenameDialog(conversation = state.conversation) {
   elements.renameInput.value = conversation.title || '';
   elements.renameDialog.showModal();
   window.setTimeout(() => elements.renameInput.select(), 0);
+}
+
+function openArchiveDialog(conversation = state.conversation) {
+  if (!conversation || state.running) return;
+  elements.archiveConversationId.value = conversation.id;
+  elements.archiveConversationTitle.textContent = conversation.title || '新会话';
+  elements.archiveDialog.showModal();
 }
 
 function openDeleteDialog(id) {
@@ -1056,8 +1174,9 @@ async function bootstrap() {
     state.modelCatalog = payload.modelCatalog || null;
     state.capabilities = payload.capabilities || {};
     const providerOk = payload.model?.provider === 'sub2api_local' && payload.model?.configured !== false;
-    elements.providerLabel.textContent = providerOk
-      ? state.modelCatalog?.available === false ? 'sub2api_local · 模型列表暂不可用' : 'sub2api_local'
+    elements.providerLabel.textContent = '咖啡自研AI助手';
+    elements.providerLabel.title = providerOk
+      ? state.modelCatalog?.available === false ? 'Sub2API 模型列表暂不可用' : '通过 Sub2API 提供模型'
       : 'Provider 配置错误';
     renderCapabilities();
     renderConversationLists();
@@ -1092,7 +1211,8 @@ elements.archiveToggle.addEventListener('click', () => {
   elements.archivedList.hidden = expanded;
 });
 elements.renameConversation.addEventListener('click', () => openRenameDialog());
-elements.archiveConversation.addEventListener('click', () => state.conversation && setArchived(state.conversation.id, true));
+elements.archiveConversation.addEventListener('click', () => openArchiveDialog());
+elements.contextMeter.addEventListener('click', () => showToast(elements.contextMeter.dataset.description || '上下文用量未知'));
 elements.modelSelect.addEventListener('change', () => {
   state.draftModel = elements.modelSelect.value;
   if (state.conversation) updateConversationSettings({ model: state.draftModel });
@@ -1152,6 +1272,13 @@ elements.renameForm.addEventListener('submit', async (event) => {
     renderConversationLists();
     syncHeader();
   } catch (error) { showToast(error.message); }
+});
+elements.archiveForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const id = elements.archiveConversationId.value;
+  if (!id) return;
+  elements.archiveDialog.close();
+  await setArchived(id, true);
 });
 elements.deleteForm.addEventListener('submit', async (event) => {
   event.preventDefault();

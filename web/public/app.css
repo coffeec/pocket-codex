@@ -418,6 +418,17 @@ summary:focus-visible {
   padding: 0 6px;
 }
 
+.topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.topbar-meta #modelLabel {
+  min-width: 0;
+}
+
 .topbar-title strong {
   color: #e9e8e5;
   font-size: 14px;
@@ -428,6 +439,49 @@ summary:focus-visible {
   margin-top: 2px;
   color: var(--faint);
   font: 10px/1.2 ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+.context-meter {
+  --context-progress: 0deg;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.context-meter:hover {
+  background: var(--surface);
+}
+
+.context-ring {
+  position: relative;
+  display: block !important;
+  width: 12px;
+  height: 12px;
+  margin: 0 !important;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) var(--context-progress), var(--surface-strong) 0);
+}
+
+.context-ring::after {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--bg);
+  content: "";
+}
+
+.context-meter.is-unknown .context-ring {
+  border: 1px dashed var(--faint);
+  background: transparent;
+}
+
+.context-meter.is-unknown .context-ring::after {
+  display: none;
 }
 
 .status-strip {
@@ -487,7 +541,16 @@ summary:focus-visible {
 }
 
 .status-more {
+  display: inline-flex;
+  width: auto;
+  padding: 0 8px;
+  gap: 3px;
   margin-left: auto;
+}
+
+.status-more-label {
+  color: var(--faint);
+  font-size: 10px;
 }
 
 .status-strip.is-loading .status-chip strong {
@@ -1361,6 +1424,14 @@ dialog::backdrop {
   overflow-wrap: anywhere;
 }
 
+.status-detail-row small {
+  grid-column: 1 / -1;
+  margin-top: -5px;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .status-detail-row.is-warning strong {
   color: var(--warning);
 }
@@ -1479,8 +1550,9 @@ dialog::backdrop {
   }
 
   .status-more {
-    width: 30px;
+    width: auto;
     height: 32px;
+    padding-inline: 5px;
     margin-left: 0;
   }
 
@@ -1607,9 +1679,14 @@ dialog::backdrop {
 
   .status-chip {
     padding-inline: 3px;
+    gap: 2px;
   }
 
-  .status-chip span {
+  .service-dot {
+    display: none;
+  }
+
+  .status-more-label {
     display: none;
   }
 
