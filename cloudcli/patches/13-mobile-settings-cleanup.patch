@@ -1,0 +1,231 @@
+diff --git a/src/components/command-palette/CommandPalette.tsx b/src/components/command-palette/CommandPalette.tsx
+index db3bd87..d41a298 100644
+--- a/src/components/command-palette/CommandPalette.tsx
++++ b/src/components/command-palette/CommandPalette.tsx
+@@ -29,6 +29,7 @@ import {
+ import { useTheme } from '../../contexts/ThemeContext';
+ import { usePaletteOps } from '../../contexts/PaletteOpsContext';
+ import { SETTINGS_MAIN_TABS } from '../settings/constants/constants';
++import { POCKETCODEX_MODE } from '../../constants/config';
+ import type { AppTab, Project } from '../../types/app';
+ 
+ import { useSessionsSource } from './sources/useSessionsSource';
+@@ -212,10 +213,12 @@ export default function CommandPalette({
+                   <Settings className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                   <span className="flex-1">Open settings</span>
+                 </CommandItem>
+-                <CommandItem value="Toggle theme dark light mode" onSelect={() => run(toggleDarkMode)}>
+-                  <SunMoon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+-                  <span className="flex-1">Toggle theme</span>
+-                </CommandItem>
++                {!POCKETCODEX_MODE && (
++                  <CommandItem value="Toggle theme dark light mode" onSelect={() => run(toggleDarkMode)}>
++                    <SunMoon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
++                    <span className="flex-1">Toggle theme</span>
++                  </CommandItem>
++                )}
+               </CommandGroup>
+             )}
+ 
+diff --git a/src/components/quick-settings-panel/view/QuickSettingsContent.tsx b/src/components/quick-settings-panel/view/QuickSettingsContent.tsx
+index 8388876..53f3d41 100644
+--- a/src/components/quick-settings-panel/view/QuickSettingsContent.tsx
++++ b/src/components/quick-settings-panel/view/QuickSettingsContent.tsx
+@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
+ 
+ import { DarkModeToggle } from '../../../shared/view/ui';
+ import LanguageSelector from '../../../shared/view/ui/LanguageSelector';
++import { POCKETCODEX_MODE } from '../../../constants/config';
+ import {
+   INPUT_SETTING_TOGGLES,
+   SETTING_ROW_CLASS,
+@@ -48,17 +49,19 @@ export default function QuickSettingsContent({
+   return (
+     <div className="flex-1 space-y-6 overflow-y-auto overflow-x-hidden bg-background p-4">
+       <QuickSettingsSection title={t('quickSettings.sections.appearance')}>
+-        <div className={SETTING_ROW_CLASS}>
+-          <span className="flex items-center gap-2 text-sm text-foreground">
+-            {isDarkMode ? (
+-              <Moon className="h-4 w-4 text-muted-foreground" />
+-            ) : (
+-              <Sun className="h-4 w-4 text-muted-foreground" />
+-            )}
+-            {t('quickSettings.darkMode')}
+-          </span>
+-          <DarkModeToggle />
+-        </div>
++        {!POCKETCODEX_MODE && (
++          <div className={SETTING_ROW_CLASS}>
++            <span className="flex items-center gap-2 text-sm text-foreground">
++              {isDarkMode ? (
++                <Moon className="h-4 w-4 text-muted-foreground" />
++              ) : (
++                <Sun className="h-4 w-4 text-muted-foreground" />
++              )}
++              {t('quickSettings.darkMode')}
++            </span>
++            <DarkModeToggle />
++          </div>
++        )}
+         <LanguageSelector compact />
+       </QuickSettingsSection>
+ 
+diff --git a/src/components/settings/view/tabs/AboutTab.tsx b/src/components/settings/view/tabs/AboutTab.tsx
+index 0216f17..1204cf2 100644
+--- a/src/components/settings/view/tabs/AboutTab.tsx
++++ b/src/components/settings/view/tabs/AboutTab.tsx
+@@ -2,7 +2,7 @@ import { Cloud, ExternalLink, MessageSquare, Star, Users } from 'lucide-react';
+ import { useTranslation } from 'react-i18next';
+ 
+ import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '../../../../constants/branding';
+-import { IS_PLATFORM } from '../../../../constants/config';
++import { IS_PLATFORM, POCKETCODEX_MODE } from '../../../../constants/config';
+ import { useVersionCheck } from '../../../../hooks/useVersionCheck';
+ import PremiumFeatureCard from '../PremiumFeatureCard';
+ 
+@@ -32,6 +32,54 @@ export default function AboutTab() {
+   const { updateAvailable, latestVersion, currentVersion, releaseInfo } = useVersionCheck('siteboon', 'claudecodeui');
+   const releasesUrl = releaseInfo?.htmlUrl || `${GITHUB_REPO_URL}/releases`;
+ 
++  if (POCKETCODEX_MODE) {
++    return (
++      <div className="space-y-6">
++        <div className="flex items-center gap-3">
++          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary/90 shadow-sm">
++            <MessageSquare className="h-5 w-5 text-primary-foreground" />
++          </div>
++          <div className="min-w-0">
++            <div className="flex flex-wrap items-center gap-2">
++              <span
++                className="text-base font-semibold text-foreground"
++                style={{ fontFamily: CLOUDCLI_WORDMARK_FONT_FAMILY }}
++              >
++                PocketCodex 代码代理
++              </span>
++              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
++                CloudCLI v{currentVersion}
++              </span>
++            </div>
++            <p className="mt-0.5 text-sm text-muted-foreground">
++              基于 CloudCLI 的受控 Codex 项目工作区
++            </p>
++          </div>
++        </div>
++
++        <div className="space-y-3 rounded-lg border border-border/60 bg-background p-4 text-sm text-muted-foreground">
++          <p>浏览器访问由 PocketCodex 统一认证，代码代理仅能操作已登记的项目目录。</p>
++          <a
++            href={GITHUB_REPO_URL}
++            target="_blank"
++            rel="noopener noreferrer"
++            className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
++          >
++            <GitHubIcon className="h-4 w-4" />
++            CloudCLI 上游项目
++            <ExternalLink className="h-3.5 w-3.5" />
++          </a>
++        </div>
++
++        <div className="border-t border-border/50 pt-4">
++          <p className="text-xs leading-relaxed text-muted-foreground/70">
++            CloudCLI 衍生部分遵循 AGPL-3.0-or-later；PocketCodex 外层遵循 MIT 许可证。
++          </p>
++        </div>
++      </div>
++    );
++  }
++
+   return (
+     <div className="space-y-6">
+       {/* Logo + name + version */}
+diff --git a/src/components/settings/view/tabs/AppearanceSettingsTab.tsx b/src/components/settings/view/tabs/AppearanceSettingsTab.tsx
+index 7b11645..a822e56 100644
+--- a/src/components/settings/view/tabs/AppearanceSettingsTab.tsx
++++ b/src/components/settings/view/tabs/AppearanceSettingsTab.tsx
+@@ -1,5 +1,6 @@
+ import { useTranslation } from 'react-i18next';
+ import { DarkModeToggle } from '../../../../shared/view/ui';
++import { POCKETCODEX_MODE } from '../../../../constants/config';
+ import type { CodeEditorSettingsState, ProjectSortOrder } from '../../types/types';
+ import LanguageSelector from '../../../../shared/view/ui/LanguageSelector';
+ import SettingsCard from '../SettingsCard';
+@@ -30,16 +31,18 @@ export default function AppearanceSettingsTab({
+ 
+   return (
+     <div className="space-y-8">
+-      <SettingsSection title={t('appearanceSettings.darkMode.label')}>
+-        <SettingsCard>
+-          <SettingsRow
+-            label={t('appearanceSettings.darkMode.label')}
+-            description={t('appearanceSettings.darkMode.description')}
+-          >
+-            <DarkModeToggle ariaLabel={t('appearanceSettings.darkMode.label')} />
+-          </SettingsRow>
+-        </SettingsCard>
+-      </SettingsSection>
++      {!POCKETCODEX_MODE && (
++        <SettingsSection title={t('appearanceSettings.darkMode.label')}>
++          <SettingsCard>
++            <SettingsRow
++              label={t('appearanceSettings.darkMode.label')}
++              description={t('appearanceSettings.darkMode.description')}
++            >
++              <DarkModeToggle ariaLabel={t('appearanceSettings.darkMode.label')} />
++            </SettingsRow>
++          </SettingsCard>
++        </SettingsSection>
++      )}
+ 
+       <SettingsSection title={t('mainTabs.appearance')}>
+         <SettingsCard>
+diff --git a/src/contexts/ThemeContext.jsx b/src/contexts/ThemeContext.jsx
+index 2508f50..3a7e0a7 100644
+--- a/src/contexts/ThemeContext.jsx
++++ b/src/contexts/ThemeContext.jsx
+@@ -45,7 +45,7 @@ export const ThemeProvider = ({ children }) => {
+       
+       const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+       if (themeColorMeta) {
+-        themeColorMeta.setAttribute('content', '#141414'); // Dark background color (hsl(0 0% 8%))
++        themeColorMeta.setAttribute('content', POCKETCODEX_MODE ? '#171717' : '#141414');
+       }
+     } else {
+       document.documentElement.classList.remove('dark');
+@@ -66,6 +66,7 @@ export const ThemeProvider = ({ children }) => {
+ 
+   // Listen for system theme changes
+   useEffect(() => {
++    if (POCKETCODEX_MODE) return undefined;
+     if (!window.matchMedia) return;
+ 
+     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+diff --git a/src/i18n/locales/zh-CN/settings.json b/src/i18n/locales/zh-CN/settings.json
+index 381c10b..9b48e62 100644
+--- a/src/i18n/locales/zh-CN/settings.json
++++ b/src/i18n/locales/zh-CN/settings.json
+@@ -90,7 +90,9 @@
+     "appearance": "外观",
+     "git": "Git",
+     "apiTokens": "API 和令牌",
++    "voice": "语音",
+     "tasks": "任务",
++    "browser": "浏览器",
+     "computer": "计算机使用",
+     "notifications": "通知",
+     "plugins": "插件",
+diff --git a/src/main.jsx b/src/main.jsx
+index dd4b1f9..faa086f 100644
+--- a/src/main.jsx
++++ b/src/main.jsx
+@@ -8,6 +8,11 @@ import 'katex/dist/katex.min.css'
+ import './i18n/config.js'
+ import { POCKETCODEX_MODE } from './constants/config.ts'
+ 
++if (POCKETCODEX_MODE) {
++  document.documentElement.classList.add('dark');
++  localStorage.setItem('theme', 'dark');
++}
++
+ // Register service worker for PWA + Web Push support
+ if (!POCKETCODEX_MODE && 'serviceWorker' in navigator) {
+   navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(err => {

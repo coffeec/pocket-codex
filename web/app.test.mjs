@@ -9,6 +9,15 @@ import { createCodexWebApp, codexArgs } from './app.mjs';
 
 const auth = `Basic ${Buffer.from('admin:test-password').toString('base64')}`;
 
+test('mobile layout keeps the composer in the viewport and gives selectors a full row', () => {
+  const css = fs.readFileSync(new URL('./public/app.css', import.meta.url), 'utf8');
+  assert.match(css, /\.app-shell\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;/s);
+  assert.match(css, /grid-template-rows:\s*58px auto auto minmax\(0, 1fr\) max-content;/);
+  assert.match(css, /\.composer-wrap\s*\{\s*grid-row:\s*5;/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.mode-toolbar\s*\{[^}]*flex-wrap:\s*wrap;/);
+  assert.match(css, /#modelControl,\s*#effortControl\s*\{[^}]*flex:\s*1 1 calc\(50% - 3px\);/s);
+});
+
 function pocketUrl(url) {
   const parsed = new URL(url);
   if (parsed.pathname === '/api' || parsed.pathname.startsWith('/api/')) {
