@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_NAME = 'pocketcodex-shell-v4';
+const CACHE_NAME = 'pocketcodex-shell-v5';
 const SHELL_FILES = [
   '/app.css',
   '/app.js',
@@ -29,7 +29,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith('/pocket-api/') || url.pathname.startsWith('/api/') || url.pathname.startsWith('/agent/') || url.pathname === '/health' || url.pathname === '/') return;
+  if (url.pathname.startsWith('/pocket-api/') || url.pathname.startsWith('/api/') || url.pathname === '/health' || url.pathname === '/') return;
 
   event.respondWith(
     fetch(event.request)

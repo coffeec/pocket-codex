@@ -28,11 +28,27 @@ export class ConversationStore {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
       if (parsed?.version === 1 && Array.isArray(parsed.conversations)) {
         this.data = parsed;
+        let migrated = false;
         for (const conversation of this.data.conversations) {
           if (!['low', 'medium', 'high', 'xhigh'].includes(conversation.reasoningEffort)) {
             conversation.reasoningEffort = 'high';
+            migrated = true;
+          }
+          if (conversation.mode && conversation.mode !== 'gpt') {
+            conversation.legacyMode = conversation.mode;
+            conversation.mode = 'gpt';
+            conversation.archived = true;
+            migrated = true;
+          } else if (conversation.mode !== 'gpt') {
+            conversation.mode = 'gpt';
+            migrated = true;
+          }
+          if (typeof conversation.archived !== 'boolean') {
+            conversation.archived = false;
+            migrated = true;
           }
         }
+        if (migrated) this.save();
       }
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
@@ -46,8 +62,10 @@ export class ConversationStore {
     fs.renameSync(temporary, this.filePath);
   }
 
-  list() {
+  list(options = {}) {
+    const includeArchived = options.includeArchived === true;
     return [...this.data.conversations]
+      .filter((conversation) => includeArchived || !conversation.archived)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .map(({ messages, ...conversation }) => ({
         ...conversation,
@@ -65,11 +83,10 @@ export class ConversationStore {
     const conversation = {
       id: makeId('chat'),
       title: '新会话',
-      mode: ['gpt', 'agent', 'server'].includes(options.mode) ? options.mode : 'gpt',
-      model: options.model || null,
+      mode: 'gpt',
+      model: this.normalizeModel(options.model),
       reasoningEffort: ['low', 'medium', 'high', 'xhigh'].includes(options.reasoningEffort) ? options.reasoningEffort : 'high',
-      projectId: options.projectId || null,
-      threadId: null,
+      archived: false,
       createdAt: timestamp,
       updatedAt: timestamp,
       messages: [],
@@ -77,6 +94,11 @@ export class ConversationStore {
     this.data.conversations.push(conversation);
     this.save();
     return conversation;
+  }
+
+  normalizeModel(value) {
+    const model = String(value || '').trim();
+    return /^[A-Za-z0-9._:-]{1,100}$/.test(model) ? model : null;
   }
 
   addMessage(id, message) {
@@ -97,24 +119,18 @@ export class ConversationStore {
     return item;
   }
 
-  updateThread(id, threadId) {
-    const conversation = this.get(id);
-    if (!conversation) return;
-    conversation.threadId = threadId;
-    conversation.updatedAt = nowIso();
-    this.save();
-  }
-
   updateSettings(id, settings = {}) {
     const conversation = this.get(id);
     if (!conversation) return null;
-    if (settings.mode && ['gpt', 'agent', 'server'].includes(settings.mode)) conversation.mode = settings.mode;
-    if (Object.hasOwn(settings, 'model')) conversation.model = settings.model || null;
+    if (Object.hasOwn(settings, 'model')) conversation.model = this.normalizeModel(settings.model);
     if (Object.hasOwn(settings, 'reasoningEffort') && ['low', 'medium', 'high', 'xhigh'].includes(settings.reasoningEffort)) {
       conversation.reasoningEffort = settings.reasoningEffort;
     }
-    if (Object.hasOwn(settings, 'projectId')) conversation.projectId = settings.projectId || null;
-    if (settings.resetThread) conversation.threadId = null;
+    if (Object.hasOwn(settings, 'title')) {
+      const title = String(settings.title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      if (title) conversation.title = title;
+    }
+    if (Object.hasOwn(settings, 'archived')) conversation.archived = settings.archived === true;
     conversation.updatedAt = nowIso();
     this.save();
     return conversation;
@@ -127,37 +143,23 @@ export class ConversationStore {
     this.save();
     return true;
   }
-}
 
-export function normalizeCodexItem(item) {
-  if (!item || typeof item !== 'object') return null;
-  const base = { id: item.id || makeId('detail'), type: item.type, status: item.status || 'completed' };
-  switch (item.type) {
-    case 'command_execution':
-      return {
-        ...base,
-        title: item.command || '执行命令',
-        output: item.aggregated_output || '',
-        exitCode: item.exit_code,
-      };
-    case 'reasoning':
-      return { ...base, title: '分析过程摘要', output: item.text || '' };
-    case 'todo_list':
-      return { ...base, title: '执行计划', items: item.items || [] };
-    case 'mcp_tool_call':
-      return {
-        ...base,
-        title: `${item.server || 'MCP'} / ${item.tool || 'tool'}`,
-        output: item.error?.message || '',
-      };
-    case 'web_search':
-      return { ...base, title: '网页搜索', output: item.query || '' };
-    case 'file_change':
-      return { ...base, title: '文件变更', items: item.changes || [] };
-    case 'error':
-      return { ...base, title: '提示', output: item.message || '' };
-    default:
-      return null;
+  archive(id, archived = true) {
+    return this.updateSettings(id, { archived });
+  }
+
+  updateDetail(id, detailId, patch = {}) {
+    const conversation = this.get(id);
+    if (!conversation) return null;
+    for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
+      const detail = conversation.messages[index].details?.find((item) => item.id === detailId);
+      if (!detail) continue;
+      Object.assign(detail, patch);
+      conversation.updatedAt = nowIso();
+      this.save();
+      return detail;
+    }
+    return null;
   }
 }
 

@@ -1,4 +1,0 @@
-interface:
-  display_name: "GitHub Workflow"
-  short_description: "Run safe Git checks commits and pushes for a project"
-  default_prompt: "Use -workflow to review changes and prepare a verified GitHub update."

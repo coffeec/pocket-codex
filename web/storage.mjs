@@ -29,75 +29,6 @@ export function safeName(value, fallback = 'file') {
   return cleaned || fallback;
 }
 
-export function safeSlug(value) {
-  return String(value || '')
-    .normalize('NFKD')
-    .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/^[.-]+|[.-]+$/g, '')
-    .toLowerCase()
-    .slice(0, 64);
-}
-
-function isWithin(root, candidate) {
-  const relative = path.relative(root, candidate);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
-
-export class ProjectStore {
-  constructor(filePath, roots) {
-    this.filePath = filePath;
-    this.roots = Object.fromEntries(Object.entries(roots).map(([key, value]) => [key, path.resolve(value)]));
-    this.data = readJson(filePath, { version: 1, projects: [] });
-    if (!Array.isArray(this.data.projects)) this.data = { version: 1, projects: [] };
-  }
-
-  list() {
-    return this.data.projects.map(({ containerPath, ...project }) => project);
-  }
-
-  get(id) {
-    return this.data.projects.find((project) => project.id === id) || null;
-  }
-
-  resolve(id) {
-    const project = this.get(id);
-    if (!project) return null;
-    const root = this.roots[project.storage];
-    if (!root) return null;
-    const candidate = path.resolve(root, project.slug);
-    if (!isWithin(root, candidate)) return null;
-    let realRoot;
-    let realCandidate;
-    try {
-      realRoot = fs.realpathSync(root);
-      realCandidate = fs.realpathSync(candidate);
-    } catch {
-      return null;
-    }
-    return isWithin(realRoot, realCandidate) ? { ...project, containerPath: realCandidate } : null;
-  }
-
-  create({ name, storage }) {
-    if (!this.roots[storage]) throw new Error('存储位置无效');
-    const displayName = String(name || '').trim().slice(0, 80);
-    const slug = safeSlug(displayName);
-    if (!displayName || !slug) throw new Error('项目名称无效');
-    if (this.data.projects.some((project) => project.storage === storage && project.slug === slug)) {
-      throw new Error('该存储位置已存在同名项目');
-    }
-    const root = this.roots[storage];
-    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
-    const candidate = path.resolve(root, slug);
-    if (!isWithin(root, candidate)) throw new Error('项目路径越界');
-    fs.mkdirSync(candidate, { recursive: false, mode: 0o700 });
-    const timestamp = nowIso();
-    const project = { id: makeId('project'), name: displayName, slug, storage, createdAt: timestamp, updatedAt: timestamp };
-    this.data.projects.push(project);
-    atomicJson(this.filePath, this.data);
-    return { ...project };
-  }
-}
-
 export class AttachmentStore {
   constructor(dataDir, limits = {}) {
     this.root = path.join(dataDir, 'uploads');
@@ -173,6 +104,16 @@ export class AttachmentStore {
     this.data.attachments = this.data.attachments.filter((candidate) => candidate !== item);
     atomicJson(this.indexPath, this.data);
     return true;
+  }
+
+  removeConversation(conversationId) {
+    const items = this.data.attachments.filter((item) => item.conversationId === conversationId);
+    for (const item of items) fs.rmSync(path.dirname(item.diskPath), { recursive: true, force: true });
+    if (items.length) {
+      this.data.attachments = this.data.attachments.filter((item) => item.conversationId !== conversationId);
+      atomicJson(this.indexPath, this.data);
+    }
+    return items.length;
   }
 
   prepare(ids, conversationId, runRoot) {

@@ -4,21 +4,28 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import net from 'node:net';
-import { createCodexWebApp, codexArgs } from './app.mjs';
+import { createCodexWebApp } from './app.mjs';
 
-const auth = `Basic ${Buffer.from('admin:test-password').toString('base64')}`;
+const basicAuth = `Basic ${Buffer.from('admin:test-password').toString('base64')}`;
 
-test('mobile layout keeps the composer in the viewport and gives selectors a full row', () => {
+test('production UI is GPT-only, fixed dark and mobile-safe', () => {
+  const html = fs.readFileSync(new URL('./public/index.html', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('./public/app.css', import.meta.url), 'utf8');
-  assert.match(css, /\.app-shell\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;/s);
-  assert.match(css, /grid-template-rows:\s*58px auto auto minmax\(0, 1fr\) max-content;/);
-  assert.match(css, /\.composer-wrap\s*\{\s*grid-row:\s*5;/);
-  assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.mode-toolbar\s*\{[^}]*flex-wrap:\s*wrap;/);
-  assert.match(css, /#modelControl,\s*#effortControl\s*\{[^}]*flex:\s*1 1 calc\(50% - 3px\);/s);
+  const source = fs.readFileSync(new URL('./public/app.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, />\s*(?:Agent|服务器模式|TTYD|项目)\s*</i);
+  assert.doesNotMatch(source, /\/agent\/|projectSelect|modeSwitch|densityToggle/);
+  assert.match(html, /id="statusStrip"/);
+  assert.match(html, /id="modelSelect"/);
+  assert.match(html, /id="effortSelect"/);
+  assert.match(html, /capture="environment"/);
+  assert.match(css, /color-scheme:\s*dark/);
+  assert.match(css, /--content-width:\s*820px/);
+  assert.match(css, /grid-template-rows:\s*56px 42px minmax\(0, 1fr\) max-content/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*height:\s*100dvh/);
+  assert.match(css, /\.message\.is-user \.message-body[\s\S]*max-width:\s*78%/);
 });
 
-test('message submission locks synchronously before conversation setup', () => {
+test('message submission locks before conversation setup and preserves ephemeral confirmation tokens', () => {
   const source = fs.readFileSync(new URL('./public/app.js', import.meta.url), 'utf8');
   const sendStart = source.indexOf('async function sendMessage(text)');
   const sendEnd = source.indexOf('\nasync function stopRun', sendStart);
@@ -27,6 +34,10 @@ test('message submission locks synchronously before conversation setup', () => {
   assert.match(sendBlock, /state\.running \|\| state\.sendInFlight/);
   assert.match(sendBlock, /state\.sendInFlight = true;[\s\S]*await ensureConversation\(\)/);
   assert.match(sendBlock, /finally \{[\s\S]*state\.sendInFlight = false;/);
+  assert.match(source, /createConversation\(\{ fromSend: true \}\)/);
+  assert.match(source, /state\.sendInFlight && options\.fromSend !== true/);
+  assert.match(source, /ephemeral\.has\(detail\.id\)[\s\S]*detail\.confirmationToken/);
+  assert.match(source, /document\.hidden[\s\S]*scheduleStatusPoll/);
 });
 
 function pocketUrl(url) {
@@ -37,258 +48,134 @@ function pocketUrl(url) {
   return parsed.toString();
 }
 
-function request(url, options = {}) {
+function basicRequest(url, options = {}) {
   return fetch(pocketUrl(url), {
     ...options,
-    headers: { Authorization: auth, Origin: new URL(url).origin, ...options.headers },
+    headers: { Authorization: basicAuth, Origin: new URL(url).origin, ...options.headers },
   });
 }
 
-function websocketUpgrade(port, pathname, headers = {}) {
-  return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host: '127.0.0.1', port });
-    let response = '';
-    socket.setTimeout(3_000, () => socket.destroy(new Error('WebSocket upgrade timed out')));
-    socket.on('error', reject);
-    socket.on('connect', () => {
-      const lines = [
-        `GET ${pathname} HTTP/1.1`,
-        `Host: 127.0.0.1:${port}`,
-        'Connection: Upgrade',
-        'Upgrade: websocket',
-        'Sec-WebSocket-Version: 13',
-        'Sec-WebSocket-Key: dGVzdC13ZWJzb2NrZXQ=',
-        ...Object.entries(headers).map(([name, value]) => `${name}: ${value}`),
-        '',
-        '',
-      ];
-      socket.write(lines.join('\r\n'));
-    });
-    socket.on('data', (chunk) => {
-      response += chunk.toString('utf8');
-      if (response.includes('\r\n\r\n')) resolve({ response, socket });
-    });
+async function login(base) {
+  const response = await fetch(`${base}/pocket-api/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: base },
+    body: JSON.stringify({ username: 'admin', password: 'test-password' }),
+  });
+  assert.equal(response.status, 200);
+  return response.headers.get('set-cookie').split(';')[0];
+}
+
+function sessionRequest(base, cookie, pathname, options = {}) {
+  return fetch(`${base}${pathname}`, {
+    ...options,
+    headers: { Cookie: cookie, Origin: base, 'Content-Type': 'application/json', ...options.headers },
   });
 }
 
-test('codexArgs uses mode-specific sandboxes and an explicit thread ID', () => {
-  assert.deepEqual(codexArgs({ threadId: 'thread-abc', mode: 'server' }), [
-    '--sandbox', 'read-only', '--ask-for-approval', 'never',
-    'exec', 'resume', '--json', '--skip-git-repo-check', 'thread-abc', '-',
-  ]);
-  assert.deepEqual(codexArgs({ threadId: null, mode: 'agent' }, { cwd: '/projects/ssd/demo' }), [
-    '--sandbox', 'workspace-write', '--ask-for-approval', 'never',
-    'exec', '--json', '--skip-git-repo-check', '-C', '/projects/ssd/demo', '-',
-  ]);
-});
-
-test('mock API creates, sends and resumes a persisted conversation', async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-web-api-'));
+async function startApp(t, options = {}) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-app-'));
   const publicDir = path.join(directory, 'public');
   fs.mkdirSync(publicDir);
   fs.writeFileSync(path.join(publicDir, 'index.html'), '<!doctype html><title>test</title>');
-  const { server } = createCodexWebApp({
-    dataDir: path.join(directory, 'data'),
-    publicDir,
-    password: 'test-password',
-    username: 'admin',
-    mockMode: true,
+  const app = createCodexWebApp({
+    dataDir: path.join(directory, 'data'), publicDir,
+    password: 'test-password', username: 'admin', mockMode: true,
+    ...options,
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise((resolve) => server.close(resolve)));
-  const address = server.address();
-  const base = `http://127.0.0.1:${address.port}`;
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => app.server.close(resolve)));
+  return { ...app, base: `http://127.0.0.1:${app.server.address().port}`, directory };
+}
 
-  const unauthenticated = await fetch(pocketUrl(`${base}/api/bootstrap`));
-  assert.equal(unauthenticated.status, 401);
+test('mock API enforces login limits and persists GPT conversations', async (t) => {
+  const { base } = await startApp(t);
+  const session = await (await fetch(`${base}/pocket-api/session`)).json();
+  assert.equal(session.authenticated, false);
+  assert.equal((await fetch(`${base}/pocket-api/bootstrap`)).status, 401);
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const failedLogin = await fetch(pocketUrl(`${base}/api/login`), {
+    const response = await fetch(`${base}/pocket-api/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: base, 'X-Forwarded-For': '100.64.0.9' },
       body: JSON.stringify({ username: 'admin', password: 'wrong' }),
     });
-    assert.equal(failedLogin.status, 401);
+    assert.equal(response.status, 401);
   }
-  const limitedLogin = await fetch(pocketUrl(`${base}/api/login`), {
+  const limited = await fetch(`${base}/pocket-api/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: base, 'X-Forwarded-For': '100.64.0.9' },
     body: JSON.stringify({ username: 'admin', password: 'wrong' }),
   });
-  assert.equal(limitedLogin.status, 429);
+  assert.equal(limited.status, 429);
 
-  const createdResponse = await request(`${base}/api/conversations`, { method: 'POST' });
-  assert.equal(createdResponse.status, 201);
-  const created = await createdResponse.json();
+  const created = await (await basicRequest(`${base}/api/conversations`, { method: 'POST', body: '{}' })).json();
+  assert.equal(created.mode, 'gpt');
+  assert.equal(created.reasoningEffort, 'high');
 
-  const unsupportedUpload = await request(`${base}/api/conversations/${created.id}/attachments?name=unverified.pdf`, {
-    method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: Buffer.from('%PDF-1.4'),
+  const first = await basicRequest(`${base}/api/conversations/${created.id}/messages`, {
+    method: 'POST', body: JSON.stringify({ text: '检查服务器状态' }),
   });
-  assert.equal(unsupportedUpload.status, 400);
-  const oversizedUpload = await request(`${base}/api/conversations/${created.id}/attachments?name=oversized.txt`, {
-    method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: Buffer.alloc(20 * 1024 * 1024 + 1),
-  });
-  assert.equal(oversizedUpload.status, 400);
-  assert.equal((await request(`${base}/api/bootstrap`)).status, 200);
+  const stream = await first.text();
+  assert.match(stream, /event: accepted/);
+  assert.match(stream, /event: delta/);
+  assert.match(stream, /event: done/);
 
-  const firstResponse = await request(`${base}/api/conversations/${created.id}/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: '检查服务器状态' }),
-  });
-  assert.equal(firstResponse.status, 200);
-  const firstStream = await firstResponse.text();
-  assert.match(firstStream, /event: accepted/);
-  assert.match(firstStream, /event: delta/);
-  assert.match(firstStream, /event: done/);
-
-  const conversationResponse = await request(`${base}/api/conversations/${created.id}`);
-  const conversation = await conversationResponse.json();
-  assert.equal(conversation.threadId, null);
+  const conversation = await (await basicRequest(`${base}/api/conversations/${created.id}`)).json();
   assert.equal(conversation.messages.length, 2);
   assert.equal(conversation.messages[1].status, 'completed');
 
-  const secondResponse = await request(`${base}/api/conversations/${created.id}/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: '再检查一次日志' }),
+  const renamed = await basicRequest(`${base}/api/conversations/${created.id}`, {
+    method: 'PATCH', body: JSON.stringify({ title: '服务器巡检', archived: true }),
   });
-  await secondResponse.text();
+  assert.equal(renamed.status, 200);
+  assert.equal((await renamed.json()).archived, true);
+  assert.equal((await basicRequest(`${base}/api/conversations`)).status, 200);
+  const visible = await (await basicRequest(`${base}/api/conversations`)).json();
+  assert.equal(visible.length, 0);
+  const archived = await (await basicRequest(`${base}/api/conversations?archived=1`)).json();
+  assert.equal(archived[0].title, '服务器巡检');
 
-  const resumedResponse = await request(`${base}/api/conversations/${created.id}`);
-  const resumed = await resumedResponse.json();
-  assert.equal(resumed.threadId, null);
-  assert.equal(resumed.messages.length, 4);
+  assert.equal((await basicRequest(`${base}/api/conversations/${created.id}`, { method: 'DELETE' })).status, 409);
+  assert.equal((await basicRequest(`${base}/api/conversations/${created.id}?confirm=true`, { method: 'DELETE' })).status, 200);
+});
 
-  const cancellableResponse = await request(`${base}/api/conversations/${created.id}/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: '执行一个需要停止的检查' }),
+test('uploads reject unverified types and enforce the per-file limit', async (t) => {
+  const { base } = await startApp(t, { uploadLimits: { maximumFile: 16, maximumConversation: 24 } });
+  const created = await (await basicRequest(`${base}/api/conversations`, { method: 'POST', body: '{}' })).json();
+  const unsupported = await basicRequest(`${base}/api/conversations/${created.id}/attachments?name=unverified.pdf`, {
+    method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: Buffer.from('%PDF-1.4'),
   });
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  const cancelResponse = await request(`${base}/api/conversations/${created.id}/cancel`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{}',
+  assert.equal(unsupported.status, 400);
+  const oversized = await basicRequest(`${base}/api/conversations/${created.id}/attachments?name=oversized.txt`, {
+    method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: Buffer.alloc(17),
   });
-  assert.equal(cancelResponse.status, 202);
-  assert.match(await cancellableResponse.text(), /event: failure/);
-
-  const cancelledResponse = await request(`${base}/api/conversations/${created.id}`);
-  const cancelled = await cancelledResponse.json();
-  assert.equal(cancelled.messages.at(-1).status, 'cancelled');
+  assert.equal(oversized.status, 400);
 });
 
 test('cookie sessions expire at the configured maximum age', async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-session-'));
-  const publicDir = path.join(directory, 'public');
-  fs.mkdirSync(publicDir);
-  fs.writeFileSync(path.join(publicDir, 'index.html'), '<!doctype html><title>test</title>');
-  const { server } = createCodexWebApp({
-    dataDir: path.join(directory, 'data'), publicDir,
-    password: 'test-password', username: 'admin', mockMode: true,
-    sessionMaximum: 30, sessionIdle: 1_000,
-  });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise((resolve) => server.close(resolve)));
-  const base = `http://127.0.0.1:${server.address().port}`;
-  const login = await fetch(pocketUrl(`${base}/api/login`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Origin: base },
-    body: JSON.stringify({ username: 'admin', password: 'test-password' }),
-  });
-  assert.equal(login.status, 200);
-  const cookie = login.headers.get('set-cookie').split(';')[0];
-  const accepted = await fetch(pocketUrl(`${base}/api/bootstrap`), { headers: { Cookie: cookie, Origin: base } });
-  assert.equal(accepted.status, 200);
+  const { base } = await startApp(t, { sessionMaximum: 30, sessionIdle: 1_000 });
+  const cookie = await login(base);
+  assert.equal((await sessionRequest(base, cookie, '/pocket-api/bootstrap')).status, 200);
   await new Promise((resolve) => setTimeout(resolve, 45));
-  const expired = await fetch(pocketUrl(`${base}/api/bootstrap`), { headers: { Cookie: cookie, Origin: base } });
-  assert.equal(expired.status, 401);
+  assert.equal((await sessionRequest(base, cookie, '/pocket-api/bootstrap')).status, 401);
 });
 
-test('Agent proxy requires Pocket session and strips credentials', async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-agent-proxy-'));
-  const publicDir = path.join(directory, 'public');
-  fs.mkdirSync(publicDir);
-  fs.writeFileSync(path.join(publicDir, 'index.html'), '<!doctype html><title>test</title>');
-
-  const received = [];
-  const upgrades = [];
-  const upstreamSockets = new Set();
-  const upstream = http.createServer((req, res) => {
-    received.push({ url: req.url, cookie: req.headers.cookie, authorization: req.headers.authorization });
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': 'cloudcli=blocked' });
-    res.end(JSON.stringify({ path: req.url }));
-  });
-  upstream.on('upgrade', (req, socket) => {
-    upstreamSockets.add(socket);
-    socket.on('error', () => {});
-    socket.on('close', () => upstreamSockets.delete(socket));
-    upgrades.push({ url: req.url, cookie: req.headers.cookie, authorization: req.headers.authorization });
-    socket.write('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n');
-    setTimeout(() => {
-      if (!socket.destroyed) socket.write(Buffer.from([0x81, 0x02, 0x4f, 0x4b]));
-    }, 10);
-  });
-  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
-  t.after(() => {
-    for (const socket of upstreamSockets) socket.destroy();
-    return new Promise((resolve) => upstream.close(resolve));
-  });
-
-  const { server } = createCodexWebApp({
-    dataDir: path.join(directory, 'data'), publicDir,
-    password: 'test-password', username: 'admin', mockMode: true,
-    agentHost: '127.0.0.1', agentPort: upstream.address().port,
-  });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise((resolve) => server.close(resolve)));
-  const base = `http://127.0.0.1:${server.address().port}`;
-
-  assert.equal((await fetch(`${base}/agent/`)).status, 401);
-  const login = await fetch(`${base}/pocket-api/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Origin: base },
-    body: JSON.stringify({ username: 'admin', password: 'test-password' }),
-  });
-  const cookie = login.headers.get('set-cookie').split(';')[0];
-  const response = await fetch(`${base}/agent/hello?value=1`, {
-    headers: { Cookie: cookie, Authorization: 'Bearer must-not-forward', Origin: base },
-  });
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get('set-cookie'), null);
-  assert.deepEqual(await response.json(), { path: '/hello?value=1' });
-  assert.deepEqual(received, [{ url: '/hello?value=1', cookie: undefined, authorization: undefined }]);
-
-  const deniedUpgrade = await websocketUpgrade(server.address().port, '/ws');
-  assert.match(deniedUpgrade.response, /^HTTP\/1\.1 401/);
-  deniedUpgrade.socket.destroy();
-  const acceptedUpgrade = await websocketUpgrade(server.address().port, '/ws', {
-    Cookie: cookie,
-    Authorization: 'Bearer must-not-forward',
-  });
-  assert.match(acceptedUpgrade.response, /^HTTP\/1\.1 101/);
-  acceptedUpgrade.socket.destroy();
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  assert.equal((await fetch(`${base}/health`)).status, 200);
-  assert.deepEqual(upgrades, [{ url: '/ws', cookie: undefined, authorization: undefined }]);
-});
-
-test('GPT mode forwards true Sub2API response deltas', async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-gpt-'));
-  const publicDir = path.join(directory, 'public');
+test('GPT forwards true Sub2API deltas with configured model and effort', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-provider-'));
   const codexDir = path.join(directory, 'codex');
-  fs.mkdirSync(publicDir);
   fs.mkdirSync(codexDir);
-  fs.writeFileSync(path.join(publicDir, 'index.html'), '<!doctype html><title>test</title>');
   fs.writeFileSync(path.join(codexDir, 'config.toml'), 'model_provider = "sub2api_local"\nmodel = "gpt-test"\n');
   fs.writeFileSync(path.join(codexDir, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: 'test-key' }));
-  const upstreamRequests = [];
+  const requests = [];
   const upstream = http.createServer(async (req, res) => {
+    if (req.url === '/models') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ data: [{ id: 'gpt-test' }, { id: 'gpt-next' }] }));
+    }
     assert.equal(req.headers.authorization, 'Bearer test-key');
     let body = '';
     for await (const chunk of req) body += chunk;
-    upstreamRequests.push(JSON.parse(body));
+    requests.push(JSON.parse(body));
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     res.write('data: {"type":"response.output_text.delta","delta":"流式"}\n\n');
     res.write('data: {"type":"response.output_text.delta","delta":"成功"}\n\n');
@@ -296,24 +183,127 @@ test('GPT mode forwards true Sub2API response deltas', async (t) => {
   });
   await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => upstream.close(resolve)));
-  const { server } = createCodexWebApp({
-    dataDir: path.join(directory, 'data'), publicDir,
-    password: 'test-password', username: 'admin',
+  const { base } = await startApp(t, {
+    mockMode: false,
     configPath: path.join(codexDir, 'config.toml'), authPath: path.join(codexDir, 'auth.json'),
     sub2apiBaseUrl: `http://127.0.0.1:${upstream.address().port}`,
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise((resolve) => server.close(resolve)));
-  const base = `http://127.0.0.1:${server.address().port}`;
-  const created = await (await request(`${base}/api/conversations`, { method: 'POST', body: '{}' })).json();
-  const response = await request(`${base}/api/conversations/${created.id}/messages`, {
+  const bootstrap = await (await basicRequest(`${base}/api/bootstrap`)).json();
+  assert.deepEqual(bootstrap.models, ['gpt-test', 'gpt-next']);
+  assert.equal(bootstrap.modelCatalog.source, 'sub2api');
+  const created = await (await basicRequest(`${base}/api/conversations`, {
+    method: 'POST', body: JSON.stringify({ model: 'gpt-next', reasoningEffort: 'xhigh' }),
+  })).json();
+  const response = await basicRequest(`${base}/api/conversations/${created.id}/messages`, {
     method: 'POST', body: JSON.stringify({ text: '测试' }),
   });
   const stream = await response.text();
-  assert.match(stream, /event: delta/);
   assert.match(stream, /流式/);
   assert.match(stream, /成功/);
-  const conversation = await (await request(`${base}/api/conversations/${created.id}`)).json();
-  assert.equal(conversation.messages.at(-1).text, '流式成功');
-  assert.equal(upstreamRequests[0].reasoning.effort, 'high');
+  assert.equal(requests[0].model, 'gpt-next');
+  assert.equal(requests[0].reasoning.effort, 'xhigh');
+  assert.ok(requests[0].tools.some((item) => item.name === 'system_status' && item.strict === true));
+});
+
+test('mutating function calls require a same-session one-time confirmation', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-tools-'));
+  const codexDir = path.join(directory, 'codex');
+  fs.mkdirSync(codexDir);
+  fs.writeFileSync(path.join(codexDir, 'config.toml'), 'model_provider = "sub2api_local"\nmodel = "gpt-test"\n');
+  fs.writeFileSync(path.join(codexDir, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: 'test-key' }));
+  let responseRound = 0;
+  const upstream = http.createServer(async (req, res) => {
+    if (req.url === '/models') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ data: [{ id: 'gpt-test' }] }));
+    }
+    for await (const chunk of req) void chunk;
+    responseRound += 1;
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    if (responseRound === 1) {
+      return res.end('data: {"type":"response.completed","response":{"output":[{"type":"function_call","call_id":"call-1","name":"restart_palworld","arguments":"{}"}]}}\n\n');
+    }
+    res.write('data: {"type":"response.output_text.delta","delta":"等待你的确认。"}\n\n');
+    return res.end('data: {"type":"response.completed","response":{"output":[]}}\n\n');
+  });
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => upstream.close(resolve)));
+  const actions = [];
+  const { base } = await startApp(t, {
+    mockMode: false,
+    configPath: path.join(codexDir, 'config.toml'), authPath: path.join(codexDir, 'auth.json'),
+    sub2apiBaseUrl: `http://127.0.0.1:${upstream.address().port}`,
+    hostctlRunner: async (action) => { actions.push(action); return `${action}: ok`; },
+  });
+  const cookie = await login(base);
+  const created = await (await sessionRequest(base, cookie, '/pocket-api/conversations', {
+    method: 'POST', body: '{}',
+  })).json();
+  const response = await sessionRequest(base, cookie, `/pocket-api/conversations/${created.id}/messages`, {
+    method: 'POST', body: JSON.stringify({ text: '重启帕鲁' }),
+  });
+  const stream = await response.text();
+  const detailLine = stream.split('\n').find((line) => line.startsWith('data: ') && line.includes('confirmationToken'));
+  assert.ok(detailLine);
+  const detail = JSON.parse(detailLine.slice(6));
+  assert.equal(actions.includes('restart-palworld'), false);
+
+  const otherCookie = await login(base);
+  const denied = await sessionRequest(base, otherCookie, '/pocket-api/confirmations/execute', {
+    method: 'POST', body: JSON.stringify({ token: detail.confirmationToken, conversationId: created.id }),
+  });
+  assert.equal(denied.status, 409);
+  assert.equal(actions.includes('restart-palworld'), false);
+
+  const executed = await sessionRequest(base, cookie, '/pocket-api/confirmations/execute', {
+    method: 'POST', body: JSON.stringify({ token: detail.confirmationToken, conversationId: created.id }),
+  });
+  assert.equal(executed.status, 200);
+  assert.equal(actions.filter((action) => action === 'restart-palworld').length, 1);
+  const replay = await sessionRequest(base, cookie, '/pocket-api/confirmations/execute', {
+    method: 'POST', body: JSON.stringify({ token: detail.confirmationToken, conversationId: created.id }),
+  });
+  assert.equal(replay.status, 409);
+  const conversation = await (await sessionRequest(base, cookie, `/pocket-api/conversations/${created.id}`)).json();
+  assert.equal(conversation.messages.at(-1).details[0].status, 'completed');
+});
+
+test('read-only function calls execute through the strict hostctl map', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-read-tool-'));
+  const codexDir = path.join(directory, 'codex');
+  fs.mkdirSync(codexDir);
+  fs.writeFileSync(path.join(codexDir, 'config.toml'), 'model_provider = "sub2api_local"\nmodel = "gpt-test"\n');
+  fs.writeFileSync(path.join(codexDir, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: 'test-key' }));
+  let round = 0;
+  const received = [];
+  const upstream = http.createServer(async (req, res) => {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    received.push(JSON.parse(body));
+    round += 1;
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    if (round === 1) {
+      return res.end('data: {"type":"response.completed","response":{"output":[{"type":"function_call","call_id":"call-top","name":"top_processes","arguments":"{\\"limit\\":5}"}]}}\n\n');
+    }
+    res.write('data: {"type":"response.output_text.delta","delta":"CPU 占用正常。"}\n\n');
+    return res.end('data: {"type":"response.completed","response":{"output":[]}}\n\n');
+  });
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => upstream.close(resolve)));
+  const actions = [];
+  const { base } = await startApp(t, {
+    mockMode: false,
+    configPath: path.join(codexDir, 'config.toml'), authPath: path.join(codexDir, 'auth.json'),
+    sub2apiBaseUrl: `http://127.0.0.1:${upstream.address().port}`,
+    hostctlRunner: async (action) => { actions.push(action); return 'PID CMD CPU\n1 node 1.0\n2 pal 0.5\n'; },
+  });
+  const created = await (await basicRequest(`${base}/api/conversations`, { method: 'POST', body: '{}' })).json();
+  const response = await basicRequest(`${base}/api/conversations/${created.id}/messages`, {
+    method: 'POST', body: JSON.stringify({ text: '检查进程' }),
+  });
+  const stream = await response.text();
+  assert.match(stream, /server_tool/);
+  assert.match(stream, /CPU 占用正常/);
+  assert.deepEqual(actions, ['top']);
+  assert.equal(received[1].input.at(-1).type, 'function_call_output');
 });

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 1 || $# -gt 3 ]]; then
+  echo "Denied. Invalid hostctl request." >&2
+  exit 2
+fi
+
+case "$1" in
+  status|cpu|memory|disk|battery|top|pal-status|frp-status|players|backup-usage|docker-cache|pal-backup|restart-palworld|restart-frp|restart-pocket)
+    [[ $# -eq 1 ]] || exit 2
+    ;;
+  pal-logs)
+    [[ $# -eq 3 && "$2" =~ ^(20|50|100)$ && "$3" =~ ^(15|60|360|1440)$ ]] || exit 2
+    ;;
+  broadcast)
+    [[ $# -eq 2 && "$2" =~ ^[A-Za-z0-9+/=]+$ ]] || exit 2
+    ;;
+  *)
+    echo "Denied. Unknown hostctl action." >&2
+    exit 126
+    ;;
+esac
+
+remote_command=$(printf '%q ' "$@")
+
+exec ssh \
+  -i /home/node/.ssh/id_ed25519 \
+  -o BatchMode=yes \
+  -o ConnectTimeout=5 \
+  -o StrictHostKeyChecking=yes \
+  codexbot@host.docker.internal "${remote_command% }"

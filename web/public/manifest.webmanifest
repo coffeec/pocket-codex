@@ -2,7 +2,7 @@
   "id": "/",
   "name": "PocketCodex",
   "short_name": "PocketCodex",
-  "description": "Ubuntu 服务器管理助手",
+  "description": "GPT 聊天与 Ubuntu 服务器助手",
   "lang": "zh-CN",
   "start_url": "/",
   "scope": "/",

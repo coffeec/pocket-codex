@@ -5,8 +5,8 @@ description: Diagnose Ubuntu CPU, temperature, memory, disk, battery, Palworld, 
 
 # Ubuntu Health
 
-1. Run `/workspace/hostctl status`, then add `cpu`, `memory`, `disk`, or `battery` when relevant.
-2. For service incidents, add only the matching `pal-status`, `pal-logs`, `frp-status`, or `frp-logs` command.
+1. Run `/usr/local/bin/hostctl status`, then add `cpu`, `memory`, `disk`, or `battery` when relevant.
+2. For service incidents, add only the matching `pal-status`, `pal-logs`, or `frp-status` command.
 3. State measurements, thresholds, and uncertainty separately.
 4. Recommend follow-up checks without asserting unobserved changes.
 

@@ -4,6 +4,7 @@
 data
 secrets
 node_modules
+work
 *.zip
 *.tar
 *.tar.gz

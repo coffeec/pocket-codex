@@ -15,103 +15,96 @@
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
+  <!-- Paths below are from Lucide (ISC), vendored as an offline SVG symbol set. -->
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 12h16M4 6h16M4 18h16"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="m18 6-12 12M6 6l12 12"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></symbol>
+    <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M14.5 4 16 6h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l1.5-2z"/><circle cx="12" cy="13" r="3"/></symbol>
+    <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+    <symbol id="i-square" viewBox="0 0 24 24"><rect width="12" height="12" x="6" y="6" rx="1"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v12h16V8M10 12h4"/></symbol>
+    <symbol id="i-restore" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"/></symbol>
+    <symbol id="i-log-out" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 6h.01M6 18h.01"/></symbol>
+  </svg>
+
   <div class="app-shell" id="app">
     <aside class="sidebar" id="sidebar" aria-label="会话列表">
       <div class="sidebar-head">
         <div class="brand-mark" aria-hidden="true">C</div>
-        <div class="brand-copy">
-          <strong>PocketCodex</strong>
-          <span id="providerLabel">正在连接</span>
-        </div>
-        <button class="icon-button sidebar-close" id="closeSidebar" type="button" aria-label="关闭会话列表" title="关闭">×</button>
+        <div class="brand-copy"><strong>PocketCodex</strong><span id="providerLabel">正在连接</span></div>
+        <button class="icon-button sidebar-close" id="closeSidebar" type="button" aria-label="关闭会话列表" title="关闭">
+          <svg class="icon"><use href="#i-x"/></svg>
+        </button>
       </div>
-      <button class="new-chat-button" id="newChatButton" type="button"><span aria-hidden="true">＋</span> 新会话</button>
+
+      <button class="new-chat-button" id="newChatButton" type="button">
+        <svg class="icon"><use href="#i-plus"/></svg><span>新会话</span>
+      </button>
+
       <nav class="conversation-list" id="conversationList" aria-label="历史会话"></nav>
+
+      <section class="archive-section" id="archiveSection">
+        <button class="archive-toggle" id="archiveToggle" type="button" aria-expanded="false">
+          <span>已归档</span><span id="archiveCount">0</span><svg class="icon"><use href="#i-chevron-down"/></svg>
+        </button>
+        <div class="archived-list" id="archivedList" hidden></div>
+      </section>
+
       <div class="sidebar-foot">
-        <span class="service-indicator" id="sidebarIndicator" aria-hidden="true"></span>
-        <span id="sidebarStatus">等待状态</span>
-        <span class="sidebar-port">TTYD :7681</span>
+        <div class="sidebar-health"><span class="service-dot" id="sidebarIndicator" aria-hidden="true"></span><span id="sidebarStatus">等待状态</span></div>
+        <button class="icon-button" id="logoutButton" type="button" aria-label="退出登录" title="退出登录">
+          <svg class="icon"><use href="#i-log-out"/></svg>
+        </button>
       </div>
     </aside>
 
     <button class="sidebar-scrim" id="sidebarScrim" type="button" aria-label="关闭会话列表"></button>
 
-    <main class="main-panel" id="mainPanel">
+    <main class="main-panel">
       <header class="topbar">
-        <button class="icon-button menu-button" id="openSidebar" type="button" aria-label="打开会话列表" title="会话列表">☰</button>
-        <div class="topbar-title">
-          <strong id="conversationTitle">新会话</strong>
-          <span id="modelLabel">加载模型中</span>
-        </div>
-        <button class="icon-button density-button" id="densityToggle" type="button" aria-label="切换紧凑显示" title="紧凑显示">A-</button>
-        <button class="icon-button" id="refreshStatus" type="button" aria-label="刷新系统状态" title="刷新状态">↻</button>
+        <button class="icon-button menu-button" id="openSidebar" type="button" aria-label="打开会话列表" title="会话列表">
+          <svg class="icon"><use href="#i-menu"/></svg>
+        </button>
+        <div class="topbar-title"><strong id="conversationTitle">新会话</strong><span id="modelLabel">加载模型中</span></div>
+        <button class="icon-button" id="renameConversation" type="button" aria-label="重命名会话" title="重命名">
+          <svg class="icon"><use href="#i-pencil"/></svg>
+        </button>
+        <button class="icon-button" id="archiveConversation" type="button" aria-label="归档会话" title="归档">
+          <svg class="icon"><use href="#i-archive"/></svg>
+        </button>
       </header>
 
-      <section class="mode-toolbar" aria-label="工作模式">
-        <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="模式">
-          <button type="button" role="tab" data-mode="gpt" aria-selected="true">GPT</button>
-          <button type="button" role="tab" data-mode="agent" aria-selected="false">Agent</button>
-          <button type="button" role="tab" data-mode="server" aria-selected="false">服务器</button>
-        </div>
-        <label class="context-select" id="modelControl">
-          <span>模型</span>
-          <select id="modelSelect" aria-label="模型"></select>
-        </label>
-        <label class="context-select" id="effortControl">
-          <span>推理</span>
-          <select id="effortSelect" aria-label="推理强度">
-            <option value="low">low</option>
-            <option value="medium">medium</option>
-            <option value="high" selected>high</option>
-            <option value="xhigh">xhigh</option>
-          </select>
-        </label>
-        <label class="context-select" id="projectControl" hidden>
-          <span>项目</span>
-          <select id="projectSelect" aria-label="登记项目"></select>
-        </label>
-        <button class="icon-button add-project" id="addProjectButton" type="button" title="创建项目" aria-label="创建项目" hidden>＋</button>
-      </section>
-
-      <section class="status-grid is-loading" id="statusGrid" aria-label="服务器状态">
-        <div class="status-item">
-          <span class="status-label">CPU</span>
-          <strong id="cpuValue">--</strong>
-          <small id="cpuMeta">正在读取</small>
-        </div>
-        <div class="status-item">
-          <span class="status-label">内存</span>
-          <strong id="memoryValue">--</strong>
-          <small id="memoryMeta">正在读取</small>
-        </div>
-        <div class="status-item">
-          <span class="status-label">系统盘</span>
-          <strong id="diskValue">--</strong>
-          <small id="diskMeta">正在读取</small>
-        </div>
-        <div class="status-item">
-          <span class="status-label">电池</span>
-          <strong id="batteryValue">--</strong>
-          <small id="batteryMeta">正在读取</small>
-        </div>
-        <div class="status-item services-item">
-          <span class="status-label">服务</span>
-          <div class="services" id="servicesValue">
-            <span><i></i>Pal</span><span><i></i>FRP</span><span><i></i>API</span>
-          </div>
-          <small id="statusTime">正在读取</small>
-        </div>
+      <section class="status-strip is-loading" id="statusStrip" aria-label="服务器状态">
+        <button class="status-chip" id="temperatureChip" type="button" data-status-detail><span>温度</span><strong id="temperatureValue">--</strong></button>
+        <button class="status-chip" id="memoryChip" type="button" data-status-detail><span>内存</span><strong id="memoryValue">--</strong></button>
+        <button class="status-chip desktop-status" id="diskChip" type="button" data-status-detail><span>SSD</span><strong id="diskValue">--</strong></button>
+        <button class="status-chip desktop-status" type="button" data-status-detail><span>电池</span><strong id="batteryValue">--</strong></button>
+        <button class="status-chip service-chip" type="button" data-status-detail><span class="service-dot" id="palDot"></span><strong>帕鲁</strong></button>
+        <button class="status-chip service-chip" type="button" data-status-detail><span class="service-dot" id="frpDot"></span><strong>FRP</strong></button>
+        <button class="status-chip service-chip desktop-status" type="button" data-status-detail><span class="service-dot" id="apiDot"></span><strong>Sub2API</strong></button>
+        <button class="icon-button status-more" id="statusMore" type="button" aria-label="查看详细状态" title="详细状态">
+          <svg class="icon"><use href="#i-chevron-down"/></svg>
+        </button>
       </section>
 
       <section class="chat-region" id="chatRegion" aria-live="polite">
-        <div class="chat-content" id="chatContent">
+        <div class="chat-content">
           <div class="empty-state" id="emptyState">
-            <div class="empty-symbol" aria-hidden="true">›_</div>
-            <h1>现在需要检查什么？</h1>
+            <div class="empty-mark" aria-hidden="true"><svg class="icon"><use href="#i-server"/></svg></div>
+            <h1>需要我检查什么？</h1>
             <div class="quick-actions" id="quickActions">
-              <button type="button" data-prompt="检查笔记本、帕鲁和 frp 当前状态">检查服务器状态</button>
-              <button type="button" data-prompt="分析最近的帕鲁日志，判断是否有崩溃、内存不足或异常掉线">分析帕鲁日志</button>
-              <button type="button" data-prompt="查看 CPU 温度、频率、内存余量和系统盘空间，并指出异常">检查资源余量</button>
+              <button type="button" data-prompt="检查笔记本、帕鲁、FRP 和 Sub2API 当前状态">检查服务器</button>
+              <button type="button" data-prompt="分析最近一小时的帕鲁日志，判断是否有崩溃、内存不足或异常掉线">分析帕鲁日志</button>
+              <button type="button" data-prompt="查看 CPU 温度、内存余量、SSD 空间和 Docker 构建缓存，并指出异常">检查资源</button>
             </div>
           </div>
           <div class="message-list" id="messageList"></div>
@@ -119,20 +112,38 @@
       </section>
 
       <footer class="composer-wrap">
-        <div class="attachment-tray" id="attachmentTray" hidden></div>
-        <form class="composer" id="composer">
-          <button class="attach-button" id="attachButton" type="button" aria-label="添加附件" title="添加附件">＋</button>
-          <input id="fileInput" type="file" multiple hidden accept="image/*,.txt,.md,.csv,.log,.js,.mjs,.cjs,.ts,.tsx,.jsx,.css,.html,.xml,.json,.yaml,.yml,.toml,.ini,.sh,.ps1,.py,.go,.rs,.java,.c,.h,.cpp,.hpp">
-          <textarea id="promptInput" rows="1" maxlength="16000" placeholder="发送消息" aria-label="消息"></textarea>
-          <button class="send-button" id="sendButton" type="submit" aria-label="发送" title="发送">↑</button>
-          <button class="stop-button" id="stopButton" type="button" aria-label="停止任务" title="停止任务">■</button>
-        </form>
-        <div class="composer-meta"><span id="runState">就绪</span><span id="characterCount">0 / 16000</span></div>
+        <div class="composer-stack">
+          <div class="attachment-tray" id="attachmentTray" hidden></div>
+          <div class="conversation-controls">
+            <label><span>模型</span><select id="modelSelect" aria-label="模型"></select></label>
+            <label><span>推理</span><select id="effortSelect" aria-label="推理强度"><option value="low">low</option><option value="medium">medium</option><option value="high" selected>high</option><option value="xhigh">xhigh</option></select></label>
+            <span class="capability-note" id="capabilityNote"></span>
+          </div>
+          <form class="composer" id="composer">
+            <button class="icon-button composer-button" id="attachButton" type="button" aria-label="添加附件" title="添加附件">
+              <svg class="icon"><use href="#i-paperclip"/></svg>
+            </button>
+            <button class="icon-button composer-button camera-button" id="cameraButton" type="button" aria-label="拍照" title="拍照">
+              <svg class="icon"><use href="#i-camera"/></svg>
+            </button>
+            <input id="fileInput" type="file" multiple hidden accept="image/*,.txt,.md,.csv,.log,.js,.mjs,.cjs,.ts,.tsx,.jsx,.css,.html,.xml,.json,.yaml,.yml,.toml,.ini,.sh,.ps1,.py,.go,.rs,.java,.c,.h,.cpp,.hpp">
+            <input id="cameraInput" type="file" hidden accept="image/*" capture="environment">
+            <textarea id="promptInput" rows="1" maxlength="16000" placeholder="发送消息" aria-label="消息"></textarea>
+            <button class="send-button" id="sendButton" type="submit" aria-label="发送" title="发送">
+              <svg class="icon"><use href="#i-arrow-up"/></svg>
+            </button>
+            <button class="stop-button" id="stopButton" type="button" aria-label="停止生成" title="停止生成">
+              <svg class="icon"><use href="#i-square"/></svg>
+            </button>
+          </form>
+          <div class="composer-meta"><span id="runState">就绪</span><span id="characterCount">0 / 16000</span></div>
+        </div>
       </footer>
     </main>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
   <div class="login-screen" id="loginScreen" hidden>
     <form class="login-panel" id="loginForm">
       <div class="brand-mark" aria-hidden="true">C</div>
@@ -144,18 +155,29 @@
     </form>
   </div>
 
-  <dialog class="project-dialog" id="projectDialog">
-    <form method="dialog" id="projectForm">
-      <header><strong>创建登记项目</strong><button class="icon-button" value="cancel" aria-label="关闭" title="关闭">×</button></header>
-      <label><span>项目名称</span><input id="projectName" maxlength="80" required placeholder="my-project"></label>
-      <fieldset><legend>存储位置</legend>
-        <label><input type="radio" name="storage" value="ssd" checked> SSD</label>
-        <label><input type="radio" name="storage" value="disk"> D 盘</label>
-      </fieldset>
-      <p class="form-error" id="projectError" role="alert"></p>
-      <footer><button value="cancel">取消</button><button class="primary" id="createProjectButton" value="default">创建</button></footer>
+  <dialog class="bottom-sheet status-dialog" id="statusDialog">
+    <div class="dialog-head"><strong>服务器详情</strong><button class="icon-button" data-close-dialog type="button" aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button></div>
+    <div class="status-details" id="statusDetails"></div>
+    <div class="dialog-foot"><span id="statusCheckedAt">尚未读取</span><button class="secondary-button" id="refreshStatus" type="button"><svg class="icon"><use href="#i-refresh"/></svg><span>刷新</span></button></div>
+  </dialog>
+
+  <dialog class="form-dialog" id="renameDialog">
+    <form id="renameForm">
+      <div class="dialog-head"><strong>重命名会话</strong><button class="icon-button" data-close-dialog type="button" aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button></div>
+      <label><span>会话名称</span><input id="renameInput" maxlength="80" required></label>
+      <div class="dialog-actions"><button class="secondary-button" data-close-dialog type="button">取消</button><button class="primary-button" type="submit">保存</button></div>
     </form>
   </dialog>
+
+  <dialog class="form-dialog" id="deleteDialog">
+    <form id="deleteForm">
+      <div class="dialog-head"><strong>永久删除会话</strong><button class="icon-button" data-close-dialog type="button" aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button></div>
+      <p>此操作会删除 PocketCodex 中的会话记录，无法撤销。归档数据不会自动删除原始 Codex 线程。</p>
+      <input id="deleteConversationId" type="hidden">
+      <div class="dialog-actions"><button class="secondary-button" data-close-dialog type="button">取消</button><button class="danger-button" type="submit">永久删除</button></div>
+    </form>
+  </dialog>
+
   <script src="/app.js" defer></script>
 </body>
 </html>

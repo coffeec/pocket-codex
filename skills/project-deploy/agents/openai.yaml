@@ -1,4 +1,0 @@
-interface:
-  display_name: "Project Deploy"
-  short_description: "Test and deploy only within the registered project boundary"
-  default_prompt: "Use -deploy to validate and deploy the current registered project."

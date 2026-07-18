@@ -12,6 +12,7 @@ secrets/
 *.bak-*
 *.new
 *.log
+/work/
 
 # Dependency and editor files
 node_modules/

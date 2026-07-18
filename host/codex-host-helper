@@ -3,12 +3,31 @@ set -euo pipefail
 
 PAL_SERVICE=palworld
 FRP_SERVICE=sakurafrp-palworld
+PRIVILEGED=/usr/local/sbin/pocket-host-actions
+BACKUP_DIR=/mnt/d/palworld-backups
 requested=${SSH_ORIGINAL_COMMAND:-}
 
 service_state() {
   local service=$1
   printf '%s: ' "$service"
   systemctl is-active "$service" 2>/dev/null || true
+}
+
+battery_status() {
+  local battery
+  battery=$(find /sys/class/power_supply -maxdepth 1 -type l -name 'BAT*' | head -n 1)
+  [[ -n "$battery" ]] || { echo "battery not found"; return 0; }
+  local field
+  for field in status capacity energy_now energy_full energy_full_design charge_now charge_full charge_full_design; do
+    [[ -r "$battery/$field" ]] && printf '%s: %s\n' "$field" "$(<"$battery/$field")"
+  done
+}
+
+redact_logs() {
+  sed -E \
+    -e 's/([A-Za-z0-9_]*(token|password|secret|api[_-]?key)[A-Za-z0-9_]*[[:space:]]*[:=][[:space:]]*)[^[:space:],;]+/\1[REDACTED]/Ig' \
+    -e 's/(Authorization:[[:space:]]*(Bearer|Basic)[[:space:]]+)[^[:space:]]+/\1[REDACTED]/Ig' \
+    | cut -c1-500
 }
 
 case "$requested" in
@@ -24,47 +43,64 @@ case "$requested" in
     df -h /
     echo "== temperatures =="
     LC_ALL=C sensors 2>/dev/null || echo "sensors unavailable"
+    echo "== battery =="
+    battery_status
     ;;
   cpu)
-    echo "== load =="
     uptime
-    echo "== frequency MHz =="
     awk -F: '/cpu MHz/ {sum+=$2; n++} END {if(n) printf "average: %.0f MHz across %d threads\n", sum/n, n}' /proc/cpuinfo
-    echo "== temperatures =="
     LC_ALL=C sensors 2>/dev/null || echo "sensors unavailable"
     ;;
   memory)
     free -h
-    echo
-    ps -eo pid,comm,%cpu,%mem,rss --sort=-rss | head -n 12
+    ;;
+  top)
+    ps -eo pid,comm,%cpu,%mem,rss,etimes --sort=-%cpu | head -n 16
     ;;
   disk)
     df -hT
     ;;
   battery)
-    battery=$(find /sys/class/power_supply -maxdepth 1 -type l -name 'BAT*' | head -n 1)
-    if [[ -z "$battery" ]]; then
-      echo "battery not found"
-      exit 1
-    fi
-    for field in status capacity energy_now energy_full energy_full_design charge_now charge_full charge_full_design; do
-      [[ -r "$battery/$field" ]] && printf '%s: %s\n' "$field" "$(<"$battery/$field")"
-    done
+    battery_status
     ;;
   pal-status)
-    systemctl status "$PAL_SERVICE" --no-pager -l
+    systemctl status "$PAL_SERVICE" --no-pager -l 2>&1 | head -n 60 | redact_logs
     ;;
-  pal-logs)
-    journalctl -u "$PAL_SERVICE" -n 120 --no-pager
+  pal-logs\ *)
+    read -r action lines minutes extra <<<"$requested"
+    [[ -z "${extra:-}" && "$lines" =~ ^(20|50|100)$ && "$minutes" =~ ^(15|60|360|1440)$ ]] || exit 126
+    journalctl -u "$PAL_SERVICE" --since "$minutes minutes ago" -n "$lines" --no-pager -o short-iso 2>&1 | redact_logs
     ;;
   frp-status)
-    systemctl status "$FRP_SERVICE" --no-pager -l
+    systemctl status "$FRP_SERVICE" --no-pager -l 2>&1 | head -n 50 | redact_logs
     ;;
-  frp-logs)
-    journalctl -u "$FRP_SERVICE" -n 120 --no-pager
+  players)
+    echo '{"available":false,"reason":"Palworld RCON and REST API are disabled"}'
+    ;;
+  broadcast\ *)
+    echo '{"available":false,"reason":"Palworld RCON and REST API are disabled"}'
+    exit 69
+    ;;
+  backup-usage)
+    exec "$PRIVILEGED" backup-usage
+    ;;
+  docker-cache)
+    exec "$PRIVILEGED" docker-cache
+    ;;
+  pal-backup)
+    exec "$PRIVILEGED" pal-backup
+    ;;
+  restart-palworld)
+    exec "$PRIVILEGED" restart-palworld
+    ;;
+  restart-frp)
+    exec "$PRIVILEGED" restart-frp
+    ;;
+  restart-pocket)
+    exec "$PRIVILEGED" restart-pocket
     ;;
   *)
-    echo "Denied. Unknown read-only command: $requested" >&2
+    echo "Denied. Unknown hostctl request." >&2
     exit 126
     ;;
 esac

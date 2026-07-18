@@ -1,11 +1,16 @@
-# PocketCodex CloudCLI integration
+# Archived PocketCodex CloudCLI integration
 
-This directory builds an AGPL-3.0-or-later CloudCLI derivative for the Agent workspace.
+This directory is retained only as an AGPL-compliant historical source and rollback layer. The
+current PocketCodex Compose file does not build, start, proxy, or mount CloudCLI. Its persistent
+`data/cloudcli` directory and the production rollback image must be preserved until the operator
+explicitly retires them.
+
+Historically, this directory built an AGPL-3.0-or-later CloudCLI derivative for the Agent workspace.
 `upstream-27eaf0146a46.tar.gz` is a `git archive` of the pinned upstream commit. The Docker build
 verifies its SHA-256 before applying the ordered local patches. CloudCLI remains a separate service
 and is not copied into PocketCodex's MIT runtime source.
 
-Runtime rules:
+Historical runtime rules:
 
 - PocketCodex authenticates all HTTP and WebSocket traffic.
 - CloudCLI runs in platform mode and has no published host port.
