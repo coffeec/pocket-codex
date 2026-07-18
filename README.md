@@ -91,7 +91,7 @@ node --check web/public/app.js
 node --test web/*.test.mjs
 ```
 
-CloudCLI 构建会在固定上游源码上执行三个补丁、`npm ci` 和生产构建。部署前至少运行：
+CloudCLI 构建会在固定上游源码上按顺序应用全部补丁，再执行 `npm ci` 和生产构建。部署前至少运行：
 
 ```bash
 docker compose config --quiet

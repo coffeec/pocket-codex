@@ -1,17 +1,17 @@
 :root {
   color-scheme: dark;
-  --bg: #101311;
-  --panel: #151916;
-  --surface: #1b201c;
-  --surface-strong: #242a25;
-  --border: #303631;
-  --border-soft: #252b26;
-  --text: #eef2ee;
-  --muted: #9aa49c;
-  --faint: #69736b;
-  --accent: #46c97a;
-  --accent-strong: #6cdb98;
-  --accent-ink: #07140c;
+  --bg: #171717;
+  --panel: #171717;
+  --surface: #1f1f1f;
+  --surface-strong: #2b2b2b;
+  --border: #2b2b2b;
+  --border-soft: #242424;
+  --text: #efeeec;
+  --muted: #a3a3a3;
+  --faint: #737373;
+  --accent: #37be78;
+  --accent-strong: #55d495;
+  --accent-ink: #0c1a12;
   --danger: #ed7474;
   --warning: #e3b65f;
   --radius: 6px;
@@ -408,7 +408,7 @@ button:active {
   gap: 8px;
   padding: 0 16px;
   border-bottom: 1px solid var(--border-soft);
-  background: rgb(16 19 17 / 96%);
+  background: rgb(23 23 23 / 96%);
 }
 
 .topbar-title {
@@ -848,7 +848,7 @@ button:active {
   min-width: 0;
   padding: 10px max(16px, calc((100% - 900px) / 2 + 22px)) max(10px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--border-soft);
-  background: rgb(16 19 17 / 97%);
+  background: rgb(23 23 23 / 97%);
 }
 
 .attachment-tray {
@@ -973,7 +973,7 @@ button:active {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: #0b0d0c;
+  background: var(--bg);
 }
 
 .login-screen[hidden] {
