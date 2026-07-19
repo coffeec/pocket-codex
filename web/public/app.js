@@ -631,6 +631,7 @@ function setRunning(running, label = '') {
   elements.attachButton.disabled = running;
   elements.cameraButton.disabled = running;
   elements.promptInput.disabled = running;
+  for (const button of elements.messageList.querySelectorAll('.tool-actions button')) button.disabled = running;
   elements.runState.textContent = running ? label || '正在生成' : '就绪';
   syncHeader();
 }

@@ -39,6 +39,7 @@ test('message submission locks before conversation setup and preserves ephemeral
   assert.match(sendBlock, /state\.sendInFlight = true;[\s\S]*await ensureConversation\(\)/);
   assert.match(sendBlock, /finally \{[\s\S]*state\.sendInFlight = false;/);
   assert.match(source, /createConversation\(\{ fromSend: true \}\)/);
+  assert.match(source, /querySelectorAll\('\.tool-actions button'\)[\s\S]*button\.disabled = running/);
   assert.match(source, /state\.sendInFlight && options\.fromSend !== true/);
   assert.match(source, /ephemeral\.has\(detail\.id\)[\s\S]*detail\.confirmationToken/);
   assert.match(source, /document\.hidden[\s\S]*scheduleStatusPoll/);
