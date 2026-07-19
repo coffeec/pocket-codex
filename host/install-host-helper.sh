@@ -34,6 +34,7 @@ backup_dir="/var/backups/pocketcodex-host-helper/$(date +%Y%m%d-%H%M%S)"
 install -d -o root -g root -m 0700 "$backup_dir"
 [[ ! -e /usr/local/sbin/codex-host-helper ]] || cp -a /usr/local/sbin/codex-host-helper "$backup_dir/"
 [[ ! -e /usr/local/sbin/pocket-host-actions ]] || cp -a /usr/local/sbin/pocket-host-actions "$backup_dir/"
+[[ ! -e /usr/local/libexec/pocket-palworld-api ]] || cp -a /usr/local/libexec/pocket-palworld-api "$backup_dir/"
 [[ ! -e /home/codexbot/.ssh/authorized_keys ]] || cp -a /home/codexbot/.ssh/authorized_keys "$backup_dir/authorized_keys"
 
 if ! id codexbot >/dev/null 2>&1; then
@@ -43,6 +44,8 @@ usermod -aG systemd-journal codexbot
 
 install -o root -g root -m 0755 "$project_dir/host/codex-host-helper" /usr/local/sbin/codex-host-helper
 install -o root -g root -m 4755 "$build_dir/pocket-host-actions" /usr/local/sbin/pocket-host-actions
+install -d -o root -g root -m 0755 /usr/local/libexec
+install -o root -g root -m 0755 "$project_dir/host/palworld-api.py" /usr/local/libexec/pocket-palworld-api
 install -d -o codexbot -g codexbot -m 0700 /home/codexbot/.ssh
 printf 'restrict,command="/usr/local/sbin/codex-host-helper" %s\n' "$public_key" \
   > /home/codexbot/.ssh/authorized_keys

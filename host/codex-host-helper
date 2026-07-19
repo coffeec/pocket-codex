@@ -75,11 +75,12 @@ case "$requested" in
     systemctl status "$FRP_SERVICE" --no-pager -l 2>&1 | head -n 50 | redact_logs
     ;;
   players)
-    echo '{"available":false,"reason":"Palworld RCON and REST API are disabled"}'
+    exec "$PRIVILEGED" players
     ;;
   broadcast\ *)
-    echo '{"available":false,"reason":"Palworld RCON and REST API are disabled"}'
-    exit 69
+    read -r action encoded extra <<<"$requested"
+    [[ -z "${extra:-}" && ${#encoded} -le 1068 && "$encoded" =~ ^[A-Za-z0-9+/]+={0,2}$ ]] || exit 126
+    exec "$PRIVILEGED" broadcast "$encoded"
     ;;
   backup-usage)
     exec "$PRIVILEGED" backup-usage

@@ -61,6 +61,17 @@ static void schedule_pocket_restart(void) {
   _exit(126);
 }
 
+static void run_palworld_api(const char *action, const char *argument) {
+  if (argument) {
+    execl("/usr/bin/python3", "python3", "-I", "/usr/local/libexec/pocket-palworld-api",
+      action, argument, (char *)NULL);
+  } else {
+    execl("/usr/bin/python3", "python3", "-I", "/usr/local/libexec/pocket-palworld-api",
+      action, (char *)NULL);
+  }
+  die("Unable to execute Palworld REST adapter");
+}
+
 static int has_backup_name(const char *name) {
   const char *prefix = "palworld-save-";
   const char *suffix = ".tar.gz";
@@ -96,8 +107,17 @@ static void report_backup_usage(void) {
 
 int main(int argc, char **argv) {
   struct passwd *caller = getpwnam("codexbot");
-  if (argc != 2 || !caller || getuid() != caller->pw_uid) die("Denied");
+  if (!caller || getuid() != caller->pw_uid) die("Denied");
   secure_environment();
+
+  if (argc == 2 && strcmp(argv[1], "players") == 0) {
+    run_palworld_api("players", NULL);
+  }
+  if (argc == 3 && strcmp(argv[1], "broadcast") == 0) {
+    run_palworld_api("broadcast", argv[2]);
+  }
+  if (argc != 2) die("Denied");
+
 
   if (strcmp(argv[1], "docker-cache") == 0) {
     execl("/usr/bin/docker", "docker", "system", "df", "--format",
